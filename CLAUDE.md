@@ -48,6 +48,18 @@ target is the Pi.
 - `latest_in_dir: true` means the slide URL is a NOAA CDN directory
   listing; the fetcher regexes hrefs and takes the newest `.gif`
   (GOES-19 publishes timestamped files with no "latest" alias).
+- `type: "tides"` slides are rendered locally, not downloaded: the
+  fetcher pulls NOAA CO-OPS predictions (6-min curve + hilo extremes) as
+  JSON and `render_tide_chart()` draws a gallery-style tide curve with
+  Pillow at screen size, then the PNG bytes flow through the same
+  cache/decode path as image slides (so offline fallback is identical).
+  Tunables per slide: `station`, `timezone` (the station's IANA zone —
+  keeps the window and "now" marker correct even if the OS timezone is
+  wrong), `hours_past`, `hours_ahead`. Refresh matters even though
+  predictions are static — it repositions the amber "now" marker.
+  CO-OPS reports errors as HTTP 200 + `{"error": ...}` (handled); note
+  subordinate stations return no 6-min predictions — use harmonic
+  stations like 8665530.
 - Quiet hours (default 22:00–06:30) blank the app and call `wlopm` to cut
   display power on the Pi; the call fails silently on macOS — disable
   quiet_hours in slides.json if testing at night on the laptop.
@@ -68,6 +80,7 @@ target is the Pi.
 | 7-Day Precip (WPC) | https://www.wpc.ncep.noaa.gov/qpf/p168i.gif | 3 hr |
 | Severe Outlook (SPC Day 1) | https://www.spc.noaa.gov/partners/outlooks/national/swody1.png | 60 min |
 | Atlantic Tropical (NHC) | https://www.nhc.noaa.gov/xgtwo/two_atl_7d0.png | 2 hr |
+| Charleston Harbor Tides | CO-OPS API, station 8665530 (rendered locally, type: "tides") | 30 min |
 | US Drought Monitor (Southeast) | https://droughtmonitor.unl.edu/data/png/current/current_southeast_trd.png | 12 hr |
 
 The GOES-19 SECTOR CDN publishes a stable-named animated loop per product
@@ -95,6 +108,6 @@ code changes needed.
 ## Open items
 
 - Physical build: mat sizing to the PA248QV visible panel, cable routing
-- Possible future slides: tides (NOAA CO-OPS), marine forecast
+- Possible future slides: marine forecast (tides done 2026-07-11)
 - Final compiled build document (Claude in the chat app is tracking this
   in PROJECT_LOG.md)

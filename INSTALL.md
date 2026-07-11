@@ -103,6 +103,25 @@ Each slide entry:
 Global settings: `seconds_per_slide`, `crossfade_seconds`, `show_captions`,
 `quiet_hours` (`off`/`on`, 24h clock), `background_color`.
 
+Locally rendered tide chart (no image URL — drawn from NOAA CO-OPS
+prediction data):
+
+```json
+{
+  "name": "Charleston Harbor Tides",
+  "type": "tides",
+  "station": "8665530",             // any CO-OPS tide station id
+  "timezone": "America/New_York",   // the STATION's IANA timezone
+  "hours_past": 6,                  // chart window behind now
+  "hours_ahead": 30,                // chart window ahead of now
+  "refresh_minutes": 30             // re-render cadence (moves "now" marker)
+}
+```
+
+Always set `timezone` to the station's zone — it keeps the chart and its
+"now" marker correct even if the machine's OS timezone is unset or wrong
+(a freshly imaged Pi often sits on UTC/Europe/London).
+
 ## 6. Optional: true backlight dimming via DDC/CI
 
 The PA248QV supports DDC/CI, so the Pi can control the monitor's actual

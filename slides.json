@@ -65,6 +65,15 @@
       "refresh_minutes": 120
     },
     {
+      "name": "Charleston Harbor Tides",
+      "type": "tides",
+      "station": "8665530",
+      "timezone": "America/New_York",
+      "hours_past": 6,
+      "hours_ahead": 30,
+      "refresh_minutes": 30
+    },
+    {
       "name": "US Drought Monitor (Southeast)",
       "url": "https://droughtmonitor.unl.edu/data/png/current/current_southeast_trd.png",
       "refresh_minutes": 720

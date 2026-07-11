@@ -17,18 +17,20 @@ import argparse
 import io
 import json
 import logging
+import math
 import os
 import subprocess
 import sys
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pygame
 import requests
-from PIL import Image, ImageSequence
+from PIL import Image, ImageDraw, ImageFont, ImageSequence
 
 log = logging.getLogger("weather_frame")
 
@@ -50,10 +52,15 @@ DEFAULTS = {
 @dataclass
 class Slide:
     name: str
-    url: str
+    url: str = ""                 # unused for locally rendered types
+    type: str = "image"           # "image" | "tides"
     refresh_minutes: int = 10
     enabled: bool = True
     latest_in_dir: bool = False   # url is a directory listing; fetch newest .gif
+    station: str = ""             # tides: NOAA CO-OPS station id
+    timezone: str = ""            # tides: station IANA tz, e.g. America/New_York
+    hours_past: int = 6           # tides: chart window behind now
+    hours_ahead: int = 30         # tides: chart window ahead of now
     # runtime state
     frames: list = field(default_factory=list)      # [(Surface, duration_s)]
     updated_at: float = 0.0
@@ -62,6 +69,8 @@ class Slide:
     @property
     def cache_name(self) -> str:
         safe = "".join(c if c.isalnum() else "_" for c in self.name.lower())
+        if self.type == "tides":
+            return f"{safe}.png"
         return f"{safe}{Path(self.url).suffix or '.img'}"
 
 
@@ -69,11 +78,28 @@ def load_config(path: Path):
     with open(path) as f:
         raw = json.load(f)
     cfg = {**DEFAULTS, **{k: v for k, v in raw.items() if k != "slides"}}
+    # fail loudly on config mistakes: a typo'd slide silently skipped at
+    # runtime is invisible on a headless wall display
+    for s in raw["slides"]:
+        if not s.get("enabled", True):
+            continue
+        kind = s.get("type", "image")
+        if kind not in ("image", "tides"):
+            sys.exit(f"slides.json: unknown type {kind!r} in {s['name']!r}")
+        if kind == "image" and not s.get("url"):
+            sys.exit(f"slides.json: {s['name']!r} needs a url")
+        if kind == "tides" and not s.get("station"):
+            sys.exit(f"slides.json: {s['name']!r} needs a station id")
     slides = [
-        Slide(name=s["name"], url=s["url"],
+        Slide(name=s["name"], url=s.get("url", ""),
+              type=s.get("type", "image"),
               refresh_minutes=s.get("refresh_minutes", 10),
               enabled=s.get("enabled", True),
-              latest_in_dir=s.get("latest_in_dir", False))
+              latest_in_dir=s.get("latest_in_dir", False),
+              station=s.get("station", ""),
+              timezone=s.get("timezone", ""),
+              hours_past=s.get("hours_past", 6),
+              hours_ahead=s.get("hours_ahead", 30))
         for s in raw["slides"] if s.get("enabled", True)
     ]
     return cfg, slides
@@ -114,9 +140,135 @@ def decode_to_frames(data: bytes, screen_size, bg_color):
     return frames
 
 
+def _tide_font(px: int) -> ImageFont.FreeTypeFont:
+    # pygame bundles freesansbold.ttf on every platform we run on
+    return ImageFont.truetype(str(Path(pygame.__file__).parent /
+                                  "freesansbold.ttf"), px)
+
+
+def render_tide_chart(points, events, now, size, bg_color):
+    """Draw the tide curve, gallery style, directly at screen size.
+    points: [(datetime, feet)] 6-minute predictions, ascending
+    events: [(datetime, feet, "H"|"L")] high/low extremes
+    Returns a PIL Image.
+    """
+    w, h = size
+    GRID = (34, 38, 44)
+    DAYLINE = (56, 62, 70)
+    WATER = (13, 24, 38)
+    CURVE = (222, 227, 233)
+    TEXT = (128, 134, 142)
+    AMBER = (216, 174, 90)
+    AMBER_DIM = (105, 87, 48)
+
+    img = Image.new("RGB", (w, h), tuple(bg_color))
+    d = ImageDraw.Draw(img)
+    f_sm = _tide_font(max(13, h // 50))
+    f_md = _tide_font(max(15, h // 36))
+    line_w = max(2, h // 400)
+
+    x0, x1 = int(w * 0.07), int(w * 0.96)
+    y0, y1 = int(h * 0.10), int(h * 0.88)
+    t0, t1 = points[0][0], points[-1][0]
+    span = (t1 - t0).total_seconds()
+    vmin = min(v for _, v in points)
+    vmax = max(v for _, v in points)
+    lo, hi = math.floor(vmin - 0.4), math.ceil(vmax + 0.4)
+
+    def X(t):
+        return x0 + (t - t0).total_seconds() / span * (x1 - x0)
+
+    def Y(v):
+        return y1 - (v - lo) / (hi - lo) * (y1 - y0)
+
+    # horizontal grid + feet labels (drawn first; water fill covers them)
+    step = 1 if hi - lo <= 9 else 2
+    for ft in range(lo, hi + 1, step):
+        d.line([(x0, Y(ft)), (x1, Y(ft))], fill=GRID, width=1)
+        d.text((x0 - w // 90, Y(ft)), str(ft), font=f_sm, fill=TEXT,
+               anchor="rm")
+    # top-band labels sit at y0 - h//18, above the reach of high-tide
+    # labels (which can climb to ~y0 - h//28 when a high nears the axis
+    # ceiling) so the two never overprint
+    band_y = y0 - h // 18
+    d.text((x0, band_y), "FEET · MLLW", font=f_sm, fill=TEXT, anchor="ls")
+
+    # water: fill under the curve
+    curve_xy = [(X(t), Y(v)) for t, v in points]
+    d.polygon(curve_xy + [(curve_xy[-1][0], y1), (curve_xy[0][0], y1)],
+              fill=WATER)
+
+    # day boundaries with weekday labels
+    day = t0.replace(hour=0, minute=0) + timedelta(days=1)
+    while day < t1:
+        d.line([(X(day), y0), (X(day), y1)], fill=DAYLINE, width=1)
+        label = day.strftime("%A").upper()
+        # skip the label when the boundary is too close to the right edge
+        # for it to fit — better absent than clipped mid-word
+        if X(day) + w // 120 + d.textlength(label, font=f_sm) <= x1:
+            d.text((X(day) + w // 120, band_y), label,
+                   font=f_sm, fill=TEXT, anchor="ls")
+        day += timedelta(days=1)
+
+    d.line(curve_xy, fill=CURVE, width=line_w, joint="curve")
+
+    # high/low markers: height + time stacked away from the curve
+    r = max(4, h // 160)
+    gap = h // 80
+    for t, v, kind in events:
+        if not (t0 <= t <= t1):
+            continue
+        cx, cy = X(t), Y(v)
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=CURVE)
+        ts = t.strftime("%I:%M %p").lstrip("0")
+        lx = min(max(cx, x0 + w // 16), x1 - w // 16)
+        if kind == "H":
+            d.text((lx, cy - r - gap - h // 30), f"{v:.1f} ft",
+                   font=f_md, fill=CURVE, anchor="ms")
+            d.text((lx, cy - r - gap), ts, font=f_sm, fill=TEXT, anchor="ms")
+        else:
+            d.text((lx, cy + r + gap + h // 60), f"{v:.1f} ft",
+                   font=f_md, fill=CURVE, anchor="ma")
+            d.text((lx, cy + r + gap + h // 60 + h // 28), ts,
+                   font=f_sm, fill=TEXT, anchor="ma")
+
+    # "now" marker: thin amber line + dot on the curve; interpolate
+    # between the bracketing 6-min samples so the dot sits exactly on
+    # the drawn polyline even at max tidal slope
+    if t0 <= now <= t1:
+        xn = X(now)
+        d.line([(xn, y0), (xn, y1)], fill=AMBER_DIM, width=1)
+        v_now = points[-1][1]
+        for (ta, va), (tb, vb) in zip(points, points[1:]):
+            if ta <= now <= tb:
+                frac = ((now - ta).total_seconds() /
+                        max((tb - ta).total_seconds(), 1e-9))
+                v_now = va + (vb - va) * frac
+                break
+        rn = r + max(1, r // 3)
+        d.ellipse([xn - rn, Y(v_now) - rn, xn + rn, Y(v_now) + rn],
+                  fill=AMBER)
+    return img
+
+
+TIDE_API = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter"
+
+
+def station_now(tz_name: str) -> datetime:
+    """Wall-clock now in the station's zone (naive, to match CO-OPS
+    lst_ldt timestamps). Without this, a machine whose OS timezone
+    differs from the station's would silently skew the request window
+    and the "now" marker by the offset."""
+    if tz_name:
+        return datetime.now(ZoneInfo(tz_name)).replace(tzinfo=None)
+    return datetime.now()
+
+
 class Fetcher(threading.Thread):
     """Downloads every slide's image on its own refresh interval and
-    swaps decoded frames in atomically. Keeps last good copy on failure."""
+    swaps decoded frames in atomically. Keeps last good copy on failure.
+    Slides with type "tides" are rendered locally from NOAA CO-OPS
+    prediction data instead of downloaded."""
 
     def __init__(self, slides, cache_dir: Path, cfg, screen_size):
         super().__init__(daemon=True)
@@ -141,13 +293,47 @@ class Fetcher(threading.Thread):
             raise RuntimeError("no .gif found in directory listing")
         return slide.url.rstrip("/") + "/" + gifs[-1]
 
+    def tide_predictions(self, slide: Slide, **extra):
+        params = {"product": "predictions", "application": "weather-frame",
+                  "station": slide.station, "datum": "MLLW",
+                  "time_zone": "lst_ldt", "units": "english",
+                  "format": "json",
+                  "begin_date": (station_now(slide.timezone) -
+                                 timedelta(hours=slide.hours_past)
+                                 ).strftime("%Y%m%d %H:%M"),
+                  "range": str(slide.hours_past + slide.hours_ahead),
+                  **extra}
+        r = self.session.get(TIDE_API, params=params, timeout=30)
+        r.raise_for_status()
+        payload = r.json()
+        if "error" in payload:      # CO-OPS reports errors as HTTP 200
+            raise RuntimeError(payload["error"].get("message", "CO-OPS error"))
+        return payload["predictions"]
+
+    def render_tides(self, slide: Slide) -> bytes:
+        """Fetch CO-OPS predictions and render the chart to PNG bytes."""
+        points = [(datetime.strptime(p["t"], "%Y-%m-%d %H:%M"), float(p["v"]))
+                  for p in self.tide_predictions(slide)]
+        events = [(datetime.strptime(p["t"], "%Y-%m-%d %H:%M"),
+                   float(p["v"]), p["type"])
+                  for p in self.tide_predictions(slide, interval="hilo")]
+        img = render_tide_chart(points, events, station_now(slide.timezone),
+                                self.screen_size,
+                                self.cfg["background_color"])
+        buf = io.BytesIO()
+        img.save(buf, "PNG")
+        return buf.getvalue()
+
     def fetch_one(self, slide: Slide):
         cache_path = self.cache_dir / slide.cache_name
-        data = None
+        data, fetched_at = None, time.time()
         try:
-            r = self.session.get(self.resolve_url(slide), timeout=60)
-            r.raise_for_status()
-            data = r.content
+            if slide.type == "tides":
+                data = self.render_tides(slide)
+            else:
+                r = self.session.get(self.resolve_url(slide), timeout=60)
+                r.raise_for_status()
+                data = r.content
             tmp = cache_path.with_suffix(cache_path.suffix + ".tmp")
             tmp.write_bytes(data)
             tmp.replace(cache_path)          # atomic swap
@@ -156,13 +342,16 @@ class Fetcher(threading.Thread):
             log.warning("fetch failed for %s: %s", slide.name, e)
             if cache_path.exists():          # fall back to last good copy
                 data = cache_path.read_bytes()
+                # caption must reflect the cache's real age, not now —
+                # especially for tide charts, whose pixels encode "now"
+                fetched_at = cache_path.stat().st_mtime
         if data:
             try:
                 frames = decode_to_frames(data, self.screen_size,
                                           self.cfg["background_color"])
                 with slide.lock:
                     slide.frames = frames
-                    slide.updated_at = time.time()
+                    slide.updated_at = fetched_at
             except Exception as e:
                 log.warning("decode failed for %s: %s", slide.name, e)
 
