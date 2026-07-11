@@ -10,7 +10,8 @@ Target: Raspberry Pi 5 (8GB) + ASUS ProArt PA248QV (1920x1200)
 - Optional quiet hours (screen blanks on a schedule)
 
 Run:  python3 weather_frame.py [--config slides.json] [--windowed]
-Keys: ESC/Q quit, RIGHT/SPACE next slide, LEFT previous slide
+Keys: ESC/Q quit, RIGHT/SPACE next slide, LEFT previous slide,
+      H hold current slide (loops keep animating), P resume cycling
 """
 
 import argparse
@@ -450,9 +451,11 @@ def set_display_power(on: bool):
 # Main display loop
 # --------------------------------------------------------------------------
 
-def draw_caption(screen, font, slide: Slide):
+def draw_caption(screen, font, slide: Slide, held: bool = False):
     ts = datetime.fromtimestamp(slide.updated_at).strftime("%I:%M %p").lstrip("0")
     text = f"{slide.name}  ·  updated {ts}"
+    if held:
+        text += "  ·  held"
     label = font.render(text, True, (200, 200, 200))
     pad = 18
     screen.blit(label, (pad, screen.get_height() - label.get_height() - pad))
@@ -494,6 +497,7 @@ def main():
     frame_i, frame_started = 0, time.time()
     fade_from, fade_started = None, 0.0
     was_quiet = False
+    hold = False           # H holds the current slide; P resumes cycling
 
     def advance(step=1):
         nonlocal idx, slide_started, frame_i, frame_started, fade_from, fade_started
@@ -523,6 +527,11 @@ def main():
                     advance(1)
                 elif ev.key == pygame.K_LEFT:
                     advance(-1)
+                elif ev.key == pygame.K_h:
+                    hold = True
+                elif ev.key == pygame.K_p and hold:
+                    hold = False
+                    slide_started = time.time()   # fresh dwell, no jump
 
         quiet = in_quiet_hours(cfg)
         if quiet != was_quiet:
@@ -545,8 +554,9 @@ def main():
             clock.tick(10)
             continue
 
-        # per-slide dwell time; GIFs animate within it
-        if time.time() - slide_started >= cfg["seconds_per_slide"]:
+        # per-slide dwell time; GIFs animate within it (hold suspends
+        # auto-advance but lets the current loop keep playing)
+        if not hold and time.time() - slide_started >= cfg["seconds_per_slide"]:
             advance(1)
             slide = slides[idx]
             with slide.lock:
@@ -571,7 +581,7 @@ def main():
                 screen.blit(fade_from, (0, 0))
 
         if cfg["show_captions"]:
-            draw_caption(screen, font, slide)
+            draw_caption(screen, font, slide, hold)
 
         pygame.display.flip()
         clock.tick(30)
