@@ -1,0 +1,23 @@
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp weather-frame.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now weather-frame
+#   loginctl enable-linger $USER      # keeps it running without a login session
+#
+# Assumes the project lives at /home/pi/weather-frame — edit paths if not.
+
+[Unit]
+Description=Weather Frame slideshow
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/pi/weather-frame
+ExecStart=/usr/bin/python3 /home/pi/weather-frame/weather_frame.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=graphical-session.target

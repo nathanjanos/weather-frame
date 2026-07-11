@@ -1,0 +1,15 @@
+# virtualenv (local Mac testing)
+.venv/
+
+# runtime image cache (re-downloaded on every run)
+cache/
+
+# python bytecode
+__pycache__/
+*.pyc
+
+# local-only Claude Code settings
+.claude/settings.local.json
+
+# macOS
+.DS_Store

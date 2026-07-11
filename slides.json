@@ -1,0 +1,73 @@
+{
+  "seconds_per_slide": 8,
+  "crossfade_seconds": 0.5,
+  "show_captions": true,
+  "caption_font_size": 26,
+  "quiet_hours": {
+    "enabled": true,
+    "off": "22:00",
+    "on": "06:30"
+  },
+  "background_color": [
+    0,
+    0,
+    0
+  ],
+  "slides": [
+    {
+      "name": "Charleston Radar",
+      "url": "https://radar.weather.gov/ridge/standard/KCLX_loop.gif",
+      "refresh_minutes": 6
+    },
+    {
+      "name": "GOES-East GEOCOLOR (SE)",
+      "url": "https://cdn.star.nesdis.noaa.gov/GOES19/ABI/SECTOR/se/GEOCOLOR/GOES19-SE-GEOCOLOR-600x600.gif",
+      "refresh_minutes": 15
+    },
+    {
+      "name": "GOES-East Air Mass (SE)",
+      "url": "https://cdn.star.nesdis.noaa.gov/GOES19/ABI/SECTOR/se/AirMass/GOES19-SE-AirMass-600x600.gif",
+      "refresh_minutes": 15
+    },
+    {
+      "name": "GOES-East Infrared (SE)",
+      "url": "https://cdn.star.nesdis.noaa.gov/GOES19/ABI/SECTOR/se/13/GOES19-SE-13-600x600.gif",
+      "refresh_minutes": 15
+    },
+    {
+      "name": "GOES-East Sandwich (SE)",
+      "url": "https://cdn.star.nesdis.noaa.gov/GOES19/ABI/SECTOR/se/Sandwich/GOES19-SE-Sandwich-600x600.gif",
+      "refresh_minutes": 15
+    },
+    {
+      "name": "Mount Pleasant Hourly Forecast",
+      "url": "https://forecast.weather.gov/meteograms/Plotter.php?lat=32.8323&lon=-79.8284&wfo=CHS&zcode=SCZ050&gset=30&gdiff=10&unit=0&tinfo=EY5&ahour=0&pcmd=11011111111110000000000000000000000000000000000000000000000&lg=en&indu=1!1!1!&dd=&bw=&hrspan=48&pqpfhr=6&psnwhr=6",
+      "refresh_minutes": 60
+    },
+    {
+      "name": "US Surface Analysis (Pressure & Fronts)",
+      "url": "https://www.wpc.ncep.noaa.gov/sfc/bwsfc.gif",
+      "refresh_minutes": 120
+    },
+    {
+      "name": "7-Day Precipitation Outlook (WPC)",
+      "url": "https://www.wpc.ncep.noaa.gov/qpf/p168i.gif",
+      "refresh_minutes": 180
+    },
+    {
+      "name": "Severe Weather Outlook (SPC Day 1)",
+      "url": "https://www.spc.noaa.gov/partners/outlooks/national/swody1.png",
+      "refresh_minutes": 60
+    },
+    {
+      "name": "Atlantic Tropical Outlook (NHC)",
+      "url": "https://www.nhc.noaa.gov/xgtwo/two_atl_7d0.png",
+      "refresh_minutes": 120
+    },
+    {
+      "name": "US Drought Monitor (Southeast)",
+      "url": "https://droughtmonitor.unl.edu/data/png/current/current_southeast_trd.png",
+      "refresh_minutes": 720
+    }
+  ]
+}
