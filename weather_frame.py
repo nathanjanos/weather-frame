@@ -47,6 +47,13 @@ DEFAULTS = {
     "quiet_hours": {"enabled": True, "off": "22:00", "on": "06:30"},
     "background_color": [0, 0, 0],
     "user_agent": "weather-frame/1.0 (personal wall display)",
+    "voice": {
+        "enabled": False,
+        "wake_word": "hey jarvis",        # phrase in the wake grammar
+        "command_seconds": 3.0,           # listen window after the wake word
+        "mic_device": None,               # sounddevice input (None = default)
+        "vosk_model_dir": "models/vosk-model-small-en-us-0.15",
+    },
 }
 
 
@@ -86,6 +93,8 @@ def load_config(path: Path):
     with open(path) as f:
         raw = json.load(f)
     cfg = {**DEFAULTS, **{k: v for k, v in raw.items() if k != "slides"}}
+    # nested merge so a partial voice block keeps the other defaults
+    cfg["voice"] = {**DEFAULTS["voice"], **raw.get("voice", {})}
     # fail loudly on config mistakes: a typo'd slide silently skipped at
     # runtime is invisible on a headless wall display
     for s in raw["slides"]:
@@ -423,6 +432,128 @@ class Fetcher(threading.Thread):
 
 
 # --------------------------------------------------------------------------
+# Voice control (optional)
+# --------------------------------------------------------------------------
+
+VOSK_MODEL_URL = ("https://alphacephei.com/vosk/models/"
+                  "vosk-model-small-en-us-0.15.zip")
+
+VOICE_COMMANDS = {
+    "next": pygame.K_RIGHT, "forward": pygame.K_RIGHT,
+    "back": pygame.K_LEFT, "previous": pygame.K_LEFT,
+    "hold": pygame.K_h, "pause": pygame.K_h,
+    "play": pygame.K_p, "resume": pygame.K_p,
+}
+
+VOICE_EVENT = pygame.event.custom_type()   # mic indicator on/off
+
+
+class VoiceControl(threading.Thread):
+    """Always-on voice control, fully on-device via Vosk: a recognizer
+    constrained to the grammar ["hey jarvis", "[unk]"] listens
+    continuously; when the wake phrase appears, a second recognizer
+    decodes a few seconds against the tiny VOICE_COMMANDS grammar and
+    posts the matching KEYDOWN. (openWakeWord was tried first but its
+    embedding pipeline silently returns zero scores on numpy>=2, so one
+    Vosk engine does both jobs.)
+
+    Optional feature in the wlopm spirit: if the voice deps, model, or
+    a microphone are missing it logs why and stays off — the slideshow
+    is never affected."""
+
+    CHUNK = 3200                  # 0.2 s of 16 kHz mono int16
+
+    def __init__(self, vcfg, app_dir: Path):
+        super().__init__(daemon=True)
+        self.cfg = vcfg
+        self.app_dir = app_dir
+        self.stop_event = threading.Event()
+
+    def ensure_vosk_model(self) -> Path:
+        """Download + unzip the small Vosk model on first run (~40 MB)."""
+        target = self.app_dir / self.cfg["vosk_model_dir"]
+        if target.exists():
+            return target
+        import zipfile
+        log.info("downloading vosk model (one-time, ~40 MB) ...")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        zpath = target.parent / "vosk-model.zip"
+        with requests.get(VOSK_MODEL_URL, stream=True, timeout=300) as r:
+            r.raise_for_status()
+            with open(zpath, "wb") as f:
+                for chunk in r.iter_content(1 << 20):
+                    f.write(chunk)
+        with zipfile.ZipFile(zpath) as z:
+            z.extractall(target.parent)
+        zpath.unlink()
+        return target
+
+    def loop(self, read_chunk):
+        """Core recognition loop. read_chunk() returns 16-bit mono PCM
+        bytes (or None when the source ends — lets tests feed WAV data
+        instead of a microphone)."""
+        from vosk import KaldiRecognizer
+        wake_grammar = json.dumps([self.cfg["wake_word"], "[unk]"])
+        cmd_grammar = json.dumps(list(VOICE_COMMANDS) + ["[unk]"])
+        wake_rec = KaldiRecognizer(self.vosk, 16000, wake_grammar)
+        while not self.stop_event.is_set():
+            data = read_chunk()
+            if data is None:
+                break
+            if wake_rec.AcceptWaveform(data):
+                heard = json.loads(wake_rec.Result()).get("text", "")
+            else:
+                heard = json.loads(wake_rec.PartialResult()).get("partial", "")
+            if self.cfg["wake_word"] not in heard:
+                continue
+            log.info("wake word heard, listening for a command ...")
+            pygame.event.post(pygame.event.Event(VOICE_EVENT, listening=True))
+            cmd_rec = KaldiRecognizer(self.vosk, 16000, cmd_grammar)
+            deadline = time.time() + self.cfg["command_seconds"]
+            while time.time() < deadline and not self.stop_event.is_set():
+                data = read_chunk()
+                if data is None or cmd_rec.AcceptWaveform(data):
+                    break                       # source ended / utterance end
+            text = json.loads(cmd_rec.FinalResult()).get("text", "")
+            pygame.event.post(pygame.event.Event(VOICE_EVENT, listening=False))
+            words = [w for w in text.split() if w in VOICE_COMMANDS]
+            if words:
+                log.info("voice command: %s", words[-1])
+                pygame.event.post(pygame.event.Event(
+                    pygame.KEYDOWN, key=VOICE_COMMANDS[words[-1]]))
+            else:
+                log.info("no command recognized (heard %r)", text)
+            wake_rec = KaldiRecognizer(self.vosk, 16000, wake_grammar)
+
+    def run(self):
+        try:
+            import sounddevice as sd
+            from vosk import Model as VoskModel, SetLogLevel
+        except ImportError as e:
+            log.info("voice control off (pip install sounddevice vosk): %s", e)
+            return
+        try:
+            SetLogLevel(-1)
+            self.vosk = VoskModel(str(self.ensure_vosk_model()))
+            # NOTE: on macOS the first mic access blocks on the OS
+            # permission dialog — grant it once and this proceeds
+            log.info("voice: opening microphone (first run on macOS pops "
+                     "a permission dialog) ...")
+            stream = sd.RawInputStream(samplerate=16000, channels=1,
+                                       dtype="int16", blocksize=self.CHUNK,
+                                       device=self.cfg["mic_device"])
+            stream.start()
+        except Exception as e:
+            log.warning("voice control off: %s", e)
+            return
+        log.info("voice control on — say %r then one of: %s",
+                 self.cfg["wake_word"], ", ".join(sorted(set(VOICE_COMMANDS))))
+        self.loop(lambda: bytes(stream.read(self.CHUNK)[0]))
+        stream.stop()
+        stream.close()
+
+
+# --------------------------------------------------------------------------
 # Quiet hours
 # --------------------------------------------------------------------------
 
@@ -488,6 +619,11 @@ def main():
     fetcher = Fetcher(slides, cache_dir, cfg, size)
     fetcher.start()
 
+    voice = None
+    if cfg["voice"]["enabled"]:
+        voice = VoiceControl(cfg["voice"], Path(__file__).parent)
+        voice.start()
+
     font = pygame.font.SysFont("dejavusans", cfg["caption_font_size"])
     clock = pygame.time.Clock()
     bg = tuple(cfg["background_color"])
@@ -498,6 +634,7 @@ def main():
     fade_from, fade_started = None, 0.0
     was_quiet = False
     hold = False           # H holds the current slide; P resumes cycling
+    voice_listening = False
 
     def advance(step=1):
         nonlocal idx, slide_started, frame_i, frame_started, fade_from, fade_started
@@ -520,6 +657,8 @@ def main():
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
                 running = False
+            elif ev.type == VOICE_EVENT:
+                voice_listening = ev.listening
             elif ev.type == pygame.KEYDOWN:
                 if ev.key in (pygame.K_ESCAPE, pygame.K_q):
                     running = False
@@ -583,10 +722,17 @@ def main():
         if cfg["show_captions"]:
             draw_caption(screen, font, slide, hold)
 
+        if voice_listening:    # amber dot: wake word heard, capturing
+            pygame.draw.circle(screen, (216, 174, 90),
+                               (screen.get_width() - 34,
+                                screen.get_height() - 34), 9)
+
         pygame.display.flip()
         clock.tick(30)
 
     fetcher.stop_event.set()
+    if voice:
+        voice.stop_event.set()
     pygame.quit()
 
 

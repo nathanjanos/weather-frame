@@ -4,6 +4,9 @@
 # runtime image cache (re-downloaded on every run)
 cache/
 
+# speech models (auto-downloaded on first run with voice enabled)
+models/
+
 # python bytecode
 __pycache__/
 *.pyc

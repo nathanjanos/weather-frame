@@ -71,6 +71,17 @@ target is the Pi.
   quiet_hours in slides.json if testing at night on the laptop.
 - Main loop: 30fps; GIF frames step by their own durations inside each
   slide's dwell time; crossfade blends the outgoing frame via set_alpha.
+- Voice control (optional, `voice` block in slides.json): `VoiceControl`
+  daemon thread runs Vosk fully on-device with a two-stage constrained
+  grammar — ["hey jarvis", "[unk]"] continuously, then the command
+  grammar (next/forward/back/previous/hold/pause/play/resume) for a few
+  seconds after wake — and posts KEYDOWN events to the main loop. Amber
+  dot bottom-right while capturing. Needs `pip install sounddevice
+  vosk` (optional deps — the app runs without them); Vosk model
+  auto-downloads to `models/` (gitignored). Gotcha: openWakeWord was
+  tried for wake-word detection but silently returns ~zero scores on
+  numpy>=2 (required on Python 3.14) — verified broken even on its own
+  test clips; that's why Vosk handles the wake phrase too.
 
 ## Verified feeds (all live-tested 2026-07-11)
 
@@ -110,6 +121,8 @@ feed 404s, fix the URL in slides.json — no code changes needed.
 ## Conventions
 
 - Python 3, stdlib + pygame/Pillow/requests only; keep it a single file
+  (exception: sounddevice + vosk as *optional* imports for voice
+  control — the app must keep working when they're absent)
 - All tunables live in slides.json, never hardcoded
 - Set a User-Agent on NOAA requests (they ask for identification)
 - Windows/macOS compatibility matters for testing (e.g. no `%-I` strftime)

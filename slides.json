@@ -13,6 +13,11 @@
     0,
     0
   ],
+  "voice": {
+    "enabled": true,
+    "wake_word": "hey jarvis",
+    "command_seconds": 3.0
+  },
   "slides": [
     {
       "name": "Charleston Radar",

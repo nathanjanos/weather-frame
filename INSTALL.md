@@ -138,7 +138,43 @@ publish loops as separate PNGs):
 }
 ```
 
-## 6. Optional: true backlight dimming via DDC/CI
+## 6. Optional: voice control
+
+Fully on-device (Vosk) — no cloud, nothing leaves the machine. Say
+**"hey jarvis"**, then one of: *next / forward / back / previous /
+hold / pause / play / resume*. An amber dot appears bottom-right while
+it listens for the command.
+
+```bash
+# Mac (in the venv)
+pip install sounddevice vosk
+
+# Pi
+sudo apt install -y libportaudio2
+pip3 install --break-system-packages sounddevice vosk
+```
+
+Enable in slides.json (all keys optional except enabled):
+
+```json
+"voice": {
+  "enabled": true,
+  "wake_word": "hey jarvis",   // grammar phrase to listen for
+  "command_seconds": 3.0,      // listening window after the wake word
+  "mic_device": null           // sounddevice input; null = system default
+}
+```
+
+Notes:
+- First run downloads the small Vosk model (~40 MB) to `models/`.
+- macOS: the first mic access pops a permission dialog for your
+  terminal — grant it once. The app logs "voice control on" when ready.
+- The Pi needs a USB microphone; mount it peeking out of the frame
+  edge, not sealed behind it, or it will be muffled.
+- If the deps, model, or mic are missing, voice control disables
+  itself with a log line and the slideshow is unaffected.
+
+## 7. Optional: true backlight dimming via DDC/CI
 
 The PA248QV supports DDC/CI, so the Pi can control the monitor's actual
 backlight over the HDMI cable:
@@ -156,7 +192,7 @@ Cron example — dim to 25 at sunset hours, full at morning:
 30 6 * * *  ddcutil setvcp 10 90
 ```
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 - A slide shows nothing: check `journalctl` for fetch/decode warnings; the
   app keeps the last good image on network failures and skips slides that
