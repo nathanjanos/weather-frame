@@ -48,6 +48,11 @@ target is the Pi.
 - `latest_in_dir: true` means the slide URL is a NOAA CDN directory
   listing; the fetcher regexes hrefs and takes the newest `.gif`
   (GOES-19 publishes timestamped files with no "latest" alias).
+- `type: "sequence"` slides assemble NDFD-style numbered frames
+  (`url_template` with `{n}`, `frame_start`/`frame_count`) into an
+  animated GIF in memory (`frame_seconds` per frame, `hold_seconds` on
+  the last, default 3x), which then uses the normal cache/decode path.
+  Missing frames near forecast-cycle boundaries are skipped, not fatal.
 - `type: "tides"` slides are rendered locally, not downloaded: the
   fetcher pulls NOAA CO-OPS predictions (6-min curve + hilo extremes) as
   JSON and `render_tide_chart()` draws a gallery-style tide curve with
@@ -76,6 +81,7 @@ target is the Pi.
 | GOES-East Infrared / Band 13 (SE) | https://cdn.star.nesdis.noaa.gov/GOES19/ABI/SECTOR/se/13/GOES19-SE-13-600x600.gif | 15 min |
 | GOES-East Sandwich (SE) | https://cdn.star.nesdis.noaa.gov/GOES19/ABI/SECTOR/se/Sandwich/GOES19-SE-Sandwich-600x600.gif | 15 min |
 | Mount Pleasant Meteogram | forecast.weather.gov/meteograms/Plotter.php (lat 32.8323, lon -79.8284) | 60 min |
+| Amount of Precipitation (SC loop) | https://graphical.weather.gov/images/southcarolina/QPF{n}_southcarolina.png, n=1–12 (type: "sequence") | 60 min |
 | US Surface Analysis (barometric) | https://www.wpc.ncep.noaa.gov/sfc/bwsfc.gif | 2 hr |
 | 7-Day Precip (WPC) | https://www.wpc.ncep.noaa.gov/qpf/p168i.gif | 3 hr |
 | Severe Outlook (SPC Day 1) | https://www.spc.noaa.gov/partners/outlooks/national/swody1.png | 60 min |
@@ -92,11 +98,13 @@ a fallback but no slide currently uses it).
 
 Gotchas already hit: SPC removed `day1otlk.gif` (use the partners
 endpoint above); GOES-16 was replaced by GOES-19 as GOES-East;
-`graphical.weather.gov` (the state MaxT/MinT/PoP maps) was serving HTTP 500
-across the board on 2026-07-11 — the old disabled "Max Temperature
-Forecast (SC)" slide was retired because of it. Water-vapor band 09 has no
-stable SE loop file (404). If a feed 404s, fix the URL in slides.json — no
-code changes needed.
+`graphical.weather.gov` served HTTP 500 across the board earlier on
+2026-07-11 but recovered the same day (the old disabled "Max Temperature
+Forecast (SC)" slide was retired during the outage; QPF loop added after
+recovery). NDFD publishes QPF images past the 72 h data horizon — frames
+13+ repeat frame 13's map with only the caption changed, so the loop
+stops at 12. Water-vapor band 09 has no stable SE loop file (404). If a
+feed 404s, fix the URL in slides.json — no code changes needed.
 
 ## Conventions
 

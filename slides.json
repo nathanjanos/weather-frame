@@ -50,6 +50,15 @@
       "refresh_minutes": 120
     },
     {
+      "name": "Amount of Precipitation (SC, 3-Day Loop)",
+      "type": "sequence",
+      "url_template": "https://graphical.weather.gov/images/southcarolina/QPF{n}_southcarolina.png",
+      "frame_start": 1,
+      "frame_count": 12,
+      "frame_seconds": 0.7,
+      "refresh_minutes": 60
+    },
+    {
       "name": "7-Day Precipitation Outlook (WPC)",
       "url": "https://www.wpc.ncep.noaa.gov/qpf/p168i.gif",
       "refresh_minutes": 180

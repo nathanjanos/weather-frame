@@ -122,6 +122,22 @@ Always set `timezone` to the station's zone — it keeps the chart and its
 "now" marker correct even if the machine's OS timezone is unset or wrong
 (a freshly imaged Pi often sits on UTC/Europe/London).
 
+Animated loop assembled from numbered frames (NDFD graphical forecasts
+publish loops as separate PNGs):
+
+```json
+{
+  "name": "Amount of Precipitation (SC, 3-Day Loop)",
+  "type": "sequence",
+  "url_template": "https://graphical.weather.gov/images/southcarolina/QPF{n}_southcarolina.png",
+  "frame_start": 1,            // first frame number substituted for {n}
+  "frame_count": 12,           // how many frames
+  "frame_seconds": 0.7,        // seconds each frame is shown
+  "hold_seconds": 0,           // pause on last frame (0 = 3x frame_seconds)
+  "refresh_minutes": 60
+}
+```
+
 ## 6. Optional: true backlight dimming via DDC/CI
 
 The PA248QV supports DDC/CI, so the Pi can control the monitor's actual

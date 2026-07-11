@@ -53,7 +53,7 @@ DEFAULTS = {
 class Slide:
     name: str
     url: str = ""                 # unused for locally rendered types
-    type: str = "image"           # "image" | "tides"
+    type: str = "image"           # "image" | "tides" | "sequence"
     refresh_minutes: int = 10
     enabled: bool = True
     latest_in_dir: bool = False   # url is a directory listing; fetch newest .gif
@@ -61,6 +61,11 @@ class Slide:
     timezone: str = ""            # tides: station IANA tz, e.g. America/New_York
     hours_past: int = 6           # tides: chart window behind now
     hours_ahead: int = 30         # tides: chart window ahead of now
+    url_template: str = ""        # sequence: url with {n} placeholder
+    frame_start: int = 1          # sequence: first frame number
+    frame_count: int = 0          # sequence: how many frames
+    frame_seconds: float = 0.7    # sequence: seconds per frame
+    hold_seconds: float = 0.0     # sequence: pause on last frame (0 = 3x frame)
     # runtime state
     frames: list = field(default_factory=list)      # [(Surface, duration_s)]
     updated_at: float = 0.0
@@ -71,6 +76,8 @@ class Slide:
         safe = "".join(c if c.isalnum() else "_" for c in self.name.lower())
         if self.type == "tides":
             return f"{safe}.png"
+        if self.type == "sequence":
+            return f"{safe}.gif"
         return f"{safe}{Path(self.url).suffix or '.img'}"
 
 
@@ -84,12 +91,16 @@ def load_config(path: Path):
         if not s.get("enabled", True):
             continue
         kind = s.get("type", "image")
-        if kind not in ("image", "tides"):
+        if kind not in ("image", "tides", "sequence"):
             sys.exit(f"slides.json: unknown type {kind!r} in {s['name']!r}")
         if kind == "image" and not s.get("url"):
             sys.exit(f"slides.json: {s['name']!r} needs a url")
         if kind == "tides" and not s.get("station"):
             sys.exit(f"slides.json: {s['name']!r} needs a station id")
+        if kind == "sequence" and ("{n}" not in s.get("url_template", "")
+                                   or s.get("frame_count", 0) < 1):
+            sys.exit(f"slides.json: {s['name']!r} needs a url_template "
+                     "containing {n} and a frame_count")
     slides = [
         Slide(name=s["name"], url=s.get("url", ""),
               type=s.get("type", "image"),
@@ -99,7 +110,12 @@ def load_config(path: Path):
               station=s.get("station", ""),
               timezone=s.get("timezone", ""),
               hours_past=s.get("hours_past", 6),
-              hours_ahead=s.get("hours_ahead", 30))
+              hours_ahead=s.get("hours_ahead", 30),
+              url_template=s.get("url_template", ""),
+              frame_start=s.get("frame_start", 1),
+              frame_count=s.get("frame_count", 0),
+              frame_seconds=s.get("frame_seconds", 0.7),
+              hold_seconds=s.get("hold_seconds", 0.0))
         for s in raw["slides"] if s.get("enabled", True)
     ]
     return cfg, slides
@@ -324,12 +340,39 @@ class Fetcher(threading.Thread):
         img.save(buf, "PNG")
         return buf.getvalue()
 
+    def fetch_sequence(self, slide: Slide) -> bytes:
+        """Download numbered frames (NDFD-style loops publish them as
+        separate PNGs) and assemble an animated GIF in memory so the
+        bytes flow through the normal cache/decode path."""
+        imgs = []
+        for n in range(slide.frame_start, slide.frame_start + slide.frame_count):
+            url = slide.url_template.replace("{n}", str(n))
+            try:
+                r = self.session.get(url, timeout=60)
+                r.raise_for_status()
+                imgs.append(Image.open(io.BytesIO(r.content)).convert("RGB"))
+            except Exception as e:
+                # missing frames happen around forecast-cycle boundaries;
+                # keep the loop going with what exists
+                log.warning("frame %d failed for %s: %s", n, slide.name, e)
+        if not imgs:
+            raise RuntimeError("no frames could be fetched")
+        ms = int(slide.frame_seconds * 1000)
+        durations = [ms] * len(imgs)
+        durations[-1] = int(slide.hold_seconds * 1000) or 3 * ms
+        buf = io.BytesIO()
+        imgs[0].save(buf, "GIF", save_all=True, append_images=imgs[1:],
+                     duration=durations, loop=0)
+        return buf.getvalue()
+
     def fetch_one(self, slide: Slide):
         cache_path = self.cache_dir / slide.cache_name
         data, fetched_at = None, time.time()
         try:
             if slide.type == "tides":
                 data = self.render_tides(slide)
+            elif slide.type == "sequence":
+                data = self.fetch_sequence(slide)
             else:
                 r = self.session.get(self.resolve_url(slide), timeout=60)
                 r.raise_for_status()
