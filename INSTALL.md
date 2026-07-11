@@ -17,10 +17,26 @@ sudo apt install -y python3-pygame python3-pil python3-requests wlopm
 
 ## 2. Deploy
 
+The project lives at https://github.com/nathanjanos/weather-frame
+(private), so the Pi needs GitHub credentials once. Simplest: an SSH key.
+
 ```bash
-# from your workstation
-scp -r weather-frame/ pi@weatherframe.local:/home/pi/
+# on the Pi — one-time setup
+ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
+cat ~/.ssh/id_ed25519.pub   # add this at github.com/settings/keys
+
+git clone git@github.com:nathanjanos/weather-frame.git ~/weather-frame
 ```
+
+To update the Pi after pushing changes from the workstation:
+
+```bash
+cd ~/weather-frame && git pull
+systemctl --user restart weather-frame   # if the service is running
+```
+
+(Config experiments on the Pi itself: edit slides.json, then either
+commit/push from the Pi or `git stash` before the next pull.)
 
 Test it interactively first (from an SSH session with the desktop running,
 or a keyboard on the Pi):
