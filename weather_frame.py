@@ -69,6 +69,7 @@ class Slide:
     timezone: str = ""            # tides: station IANA tz, e.g. America/New_York
     hours_past: int = 6           # tides: chart window behind now
     hours_ahead: int = 30         # tides: chart window ahead of now
+    observed: bool = True         # tides: overlay observed water level (surge)
     url_template: str = ""        # sequence: url with {n} placeholder
     frame_start: int = 1          # sequence: first frame number
     frame_count: int = 0          # sequence: how many frames
@@ -86,7 +87,9 @@ class Slide:
             return f"{safe}.png"
         if self.type == "sequence":
             return f"{safe}.gif"
-        return f"{safe}{Path(self.url).suffix or '.img'}"
+        # strip any query string: dots in query params (ERDDAP's
+        # &.colorBar=...) would otherwise pollute the suffix
+        return f"{safe}{Path(self.url.split('?')[0]).suffix or '.img'}"
 
 
 def load_config(path: Path):
@@ -121,6 +124,7 @@ def load_config(path: Path):
               timezone=s.get("timezone", ""),
               hours_past=s.get("hours_past", 6),
               hours_ahead=s.get("hours_ahead", 30),
+              observed=s.get("observed", True),
               url_template=s.get("url_template", ""),
               frame_start=s.get("frame_start", 1),
               frame_count=s.get("frame_count", 0),
@@ -172,10 +176,12 @@ def _tide_font(px: int) -> ImageFont.FreeTypeFont:
                                   "freesansbold.ttf"), px)
 
 
-def render_tide_chart(points, events, now, size, bg_color):
+def render_tide_chart(points, events, now, size, bg_color, observed=None):
     """Draw the tide curve, gallery style, directly at screen size.
-    points: [(datetime, feet)] 6-minute predictions, ascending
-    events: [(datetime, feet, "H"|"L")] high/low extremes
+    points:   [(datetime, feet)] 6-minute predictions, ascending
+    events:   [(datetime, feet, "H"|"L")] high/low extremes
+    observed: [(datetime, feet)] measured water level (optional) — drawn
+              in amber over the prediction; the gap is storm surge
     Returns a PIL Image.
     """
     w, h = size
@@ -197,8 +203,9 @@ def render_tide_chart(points, events, now, size, bg_color):
     y0, y1 = int(h * 0.10), int(h * 0.88)
     t0, t1 = points[0][0], points[-1][0]
     span = (t1 - t0).total_seconds()
-    vmin = min(v for _, v in points)
-    vmax = max(v for _, v in points)
+    observed = [(t, v) for t, v in (observed or []) if t0 <= t <= t1]
+    all_v = [v for _, v in points] + [v for _, v in observed]
+    vmin, vmax = min(all_v), max(all_v)
     lo, hi = math.floor(vmin - 0.4), math.ceil(vmax + 0.4)
 
     def X(t):
@@ -238,6 +245,11 @@ def render_tide_chart(points, events, now, size, bg_color):
 
     d.line(curve_xy, fill=CURVE, width=line_w, joint="curve")
 
+    # observed water level over the prediction — divergence is surge
+    if len(observed) >= 2:
+        d.line([(X(t), Y(v)) for t, v in observed],
+               fill=AMBER, width=line_w, joint="curve")
+
     # high/low markers: height + time stacked away from the curve
     r = max(4, h // 160)
     gap = h // 80
@@ -258,21 +270,25 @@ def render_tide_chart(points, events, now, size, bg_color):
             d.text((lx, cy + r + gap + h // 60 + h // 28), ts,
                    font=f_sm, fill=TEXT, anchor="ma")
 
-    # "now" marker: thin amber line + dot on the curve; interpolate
-    # between the bracketing 6-min samples so the dot sits exactly on
+    # "now" marker: thin amber line + dot. The dot rides the observed
+    # curve when we have a fresh measurement (reality beats forecast);
+    # otherwise it interpolates the prediction so it sits exactly on
     # the drawn polyline even at max tidal slope
     if t0 <= now <= t1:
         xn = X(now)
         d.line([(xn, y0), (xn, y1)], fill=AMBER_DIM, width=1)
-        v_now = points[-1][1]
-        for (ta, va), (tb, vb) in zip(points, points[1:]):
-            if ta <= now <= tb:
-                frac = ((now - ta).total_seconds() /
-                        max((tb - ta).total_seconds(), 1e-9))
-                v_now = va + (vb - va) * frac
-                break
+        xd, v_now = xn, points[-1][1]
+        if observed and (now - observed[-1][0]) <= timedelta(minutes=45):
+            xd, v_now = X(observed[-1][0]), observed[-1][1]
+        else:
+            for (ta, va), (tb, vb) in zip(points, points[1:]):
+                if ta <= now <= tb:
+                    frac = ((now - ta).total_seconds() /
+                            max((tb - ta).total_seconds(), 1e-9))
+                    v_now = va + (vb - va) * frac
+                    break
         rn = r + max(1, r // 3)
-        d.ellipse([xn - rn, Y(v_now) - rn, xn + rn, Y(v_now) + rn],
+        d.ellipse([xd - rn, Y(v_now) - rn, xd + rn, Y(v_now) + rn],
                   fill=AMBER)
     return img
 
@@ -319,33 +335,46 @@ class Fetcher(threading.Thread):
             raise RuntimeError("no .gif found in directory listing")
         return slide.url.rstrip("/") + "/" + gifs[-1]
 
-    def tide_predictions(self, slide: Slide, **extra):
-        params = {"product": "predictions", "application": "weather-frame",
-                  "station": slide.station, "datum": "MLLW",
-                  "time_zone": "lst_ldt", "units": "english",
-                  "format": "json",
-                  "begin_date": (station_now(slide.timezone) -
-                                 timedelta(hours=slide.hours_past)
-                                 ).strftime("%Y%m%d %H:%M"),
-                  "range": str(slide.hours_past + slide.hours_ahead),
-                  **extra}
-        r = self.session.get(TIDE_API, params=params, timeout=30)
+    def coops_json(self, slide: Slide, **params):
+        base = {"application": "weather-frame", "station": slide.station,
+                "datum": "MLLW", "time_zone": "lst_ldt",
+                "units": "english", "format": "json"}
+        r = self.session.get(TIDE_API, params={**base, **params}, timeout=30)
         r.raise_for_status()
         payload = r.json()
         if "error" in payload:      # CO-OPS reports errors as HTTP 200
             raise RuntimeError(payload["error"].get("message", "CO-OPS error"))
-        return payload["predictions"]
+        return payload
+
+    def tide_predictions(self, slide: Slide, **extra):
+        begin = (station_now(slide.timezone) -
+                 timedelta(hours=slide.hours_past)).strftime("%Y%m%d %H:%M")
+        return self.coops_json(slide, product="predictions",
+                               begin_date=begin,
+                               range=str(slide.hours_past + slide.hours_ahead),
+                               **extra)["predictions"]
 
     def render_tides(self, slide: Slide) -> bytes:
-        """Fetch CO-OPS predictions and render the chart to PNG bytes."""
-        points = [(datetime.strptime(p["t"], "%Y-%m-%d %H:%M"), float(p["v"]))
+        """Fetch CO-OPS predictions (plus observed water level — the gap
+        between the curves is storm surge) and render the chart to PNG."""
+        ts = "%Y-%m-%d %H:%M"
+        points = [(datetime.strptime(p["t"], ts), float(p["v"]))
                   for p in self.tide_predictions(slide)]
-        events = [(datetime.strptime(p["t"], "%Y-%m-%d %H:%M"),
-                   float(p["v"]), p["type"])
+        events = [(datetime.strptime(p["t"], ts), float(p["v"]), p["type"])
                   for p in self.tide_predictions(slide, interval="hilo")]
+        observed = []
+        if slide.observed:
+            try:        # non-fatal: chart falls back to predictions-only
+                data = self.coops_json(slide, product="water_level",
+                                       date="recent")["data"]
+                observed = [(datetime.strptime(p["t"], ts), float(p["v"]))
+                            for p in data if p.get("v")]
+            except Exception as e:
+                log.warning("observed water level unavailable for %s: %s",
+                            slide.name, e)
         img = render_tide_chart(points, events, station_now(slide.timezone),
                                 self.screen_size,
-                                self.cfg["background_color"])
+                                self.cfg["background_color"], observed)
         buf = io.BytesIO()
         img.save(buf, "PNG")
         return buf.getvalue()

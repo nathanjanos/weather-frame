@@ -59,6 +59,11 @@ target is the Pi.
   JSON and `render_tide_chart()` draws a gallery-style tide curve with
   Pillow at screen size, then the PNG bytes flow through the same
   cache/decode path as image slides (so offline fallback is identical).
+  With `observed: true` (default) it also fetches measured water level
+  and overlays it in amber — the gap between the curves is storm surge;
+  the "now" dot rides the observed curve when the last measurement is
+  <45 min old, else the prediction. Observed fetch failure is non-fatal
+  (chart renders predictions-only).
   Tunables per slide: `station`, `timezone` (the station's IANA zone —
   keeps the window and "now" marker correct even if the OS timezone is
   wrong), `hours_past`, `hours_ahead`. Refresh matters even though
@@ -88,18 +93,35 @@ target is the Pi.
 | Slide | URL | Refresh |
 |---|---|---|
 | Charleston Radar | https://radar.weather.gov/ridge/standard/KCLX_loop.gif | 6 min |
+| Southeast Radar Mosaic | https://radar.weather.gov/ridge/standard/SOUTHEAST_loop.gif | 10 min |
 | GOES-East GEOCOLOR (SE) | https://cdn.star.nesdis.noaa.gov/GOES19/ABI/SECTOR/se/GEOCOLOR/GOES19-SE-GEOCOLOR-600x600.gif | 15 min |
 | GOES-East Air Mass (SE) | https://cdn.star.nesdis.noaa.gov/GOES19/ABI/SECTOR/se/AirMass/GOES19-SE-AirMass-600x600.gif | 15 min |
 | GOES-East Infrared / Band 13 (SE) | https://cdn.star.nesdis.noaa.gov/GOES19/ABI/SECTOR/se/13/GOES19-SE-13-600x600.gif | 15 min |
 | GOES-East Sandwich (SE) | https://cdn.star.nesdis.noaa.gov/GOES19/ABI/SECTOR/se/Sandwich/GOES19-SE-Sandwich-600x600.gif | 15 min |
+| GOES-East Lightning / GLM FED (SE) | https://cdn.star.nesdis.noaa.gov/GOES19/GLM/SECTOR/se/EXTENT3/GOES19-SE-EXTENT3-600x600.gif | 15 min |
 | Mount Pleasant Meteogram | forecast.weather.gov/meteograms/Plotter.php (lat 32.8323, lon -79.8284) | 60 min |
-| Amount of Precipitation (SC loop) | https://graphical.weather.gov/images/southcarolina/QPF{n}_southcarolina.png, n=1–12 (type: "sequence") | 60 min |
+| Temperature (SC loop) | https://graphical.weather.gov/images/southcarolina/T{n}_southcarolina.png, n=1–24 (sequence) | 60 min |
+| Wind Speed & Direction (SC loop) | https://graphical.weather.gov/images/southcarolina/WindSpd{n}_southcarolina.png, n=1–24 (sequence) | 60 min |
+| Sky Cover (SC loop) | https://graphical.weather.gov/images/southcarolina/Sky{n}_southcarolina.png, n=1–24 (sequence) | 60 min |
+| Amount of Precipitation (SC loop) | https://graphical.weather.gov/images/southcarolina/QPF{n}_southcarolina.png, n=1–12 (sequence) | 60 min |
 | US Surface Analysis (barometric) | https://www.wpc.ncep.noaa.gov/sfc/bwsfc.gif | 2 hr |
+| Surface Forecast Loop (~60h fronts) | https://www.wpc.ncep.noaa.gov/basicwx/{n}fndfd.gif, n=92–99 (sequence; 97 missing by design, 404s every fetch — expected log noise) | 3 hr |
+| Surface Forecast Day 3 / Day 5 (WPC) | https://www.wpc.ncep.noaa.gov/medr/9jhwbg_conus.gif / 9lhwbg_conus.gif (letter-coded: j/k/l/m/n = Day 3–7) | 6 hr |
+| 500mb Upper-Air Analysis (SPC) | https://www.spc.noaa.gov/exper/mesoanalysis/s19/500mb/500mb.gif | 60 min |
+| 300mb Jet Stream (SPC) | https://www.spc.noaa.gov/exper/mesoanalysis/s19/300mb/300mb.gif | 60 min |
+| Atlantic Surface Analysis (OPC) | https://ocean.weather.gov/A_sfc_full_ocean_color.png | 3 hr |
 | 7-Day Precip (WPC) | https://www.wpc.ncep.noaa.gov/qpf/p168i.gif | 3 hr |
+| 6-10 Day Temp Outlook (CPC) | https://www.cpc.ncep.noaa.gov/products/predictions/610day/610temp.new.gif (keep the ".new") | 6 hr |
+| 8-14 Day Precip Outlook (CPC) | https://www.cpc.ncep.noaa.gov/products/predictions/814day/814prcp.new.gif | 6 hr |
 | Severe Outlook (SPC Day 1) | https://www.spc.noaa.gov/partners/outlooks/national/swody1.png | 60 min |
+| Severe Outlook (SPC Day 2) | https://www.spc.noaa.gov/partners/outlooks/national/swody2.png | 3 hr |
 | Atlantic Tropical (NHC) | https://www.nhc.noaa.gov/xgtwo/two_atl_7d0.png | 2 hr |
-| Charleston Harbor Tides | CO-OPS API, station 8665530 (rendered locally, type: "tides") | 30 min |
+| Saharan Dust Layer | https://tropic.ssec.wisc.edu/real-time/sal/g16split/g16split.jpg (non-NOAA host, stable for years) | 3 hr |
+| Gulf Stream SST | coastwatch.pfeg.noaa.gov ERDDAP jplMURSST41.transparentPng (transparent land → black; ~60 s server render; colorBar 24–31 °C tuned for summer, widen to ~16\|30 in winter) | 12 hr |
+| Charleston Harbor Tides | CO-OPS API, station 8665530 (rendered locally, type: "tides"; observed water-level overlay = surge) | 30 min |
 | US Drought Monitor (Southeast) | https://droughtmonitor.unl.edu/data/png/current/current_southeast_trd.png | 12 hr |
+| The Sun Today (SDO HMI) | https://sdo.gsfc.nasa.gov/assets/img/latest/latest_2048_HMIIC.jpg (occasionally serves stale "latest") | 60 min |
+| Solar Corona (SOHO LASCO C3) | https://soho.nascom.nasa.gov/data/realtime/c3/1024/latest.jpg (periodic multi-day CCD-bakeout gaps) | 60 min |
 
 The GOES-19 SECTOR CDN publishes a stable-named animated loop per product
 (`GOES19-SE-<PRODUCT>-600x600.gif`); SE-sector products include GEOCOLOR,
@@ -113,10 +135,14 @@ endpoint above); GOES-16 was replaced by GOES-19 as GOES-East;
 `graphical.weather.gov` served HTTP 500 across the board earlier on
 2026-07-11 but recovered the same day (the old disabled "Max Temperature
 Forecast (SC)" slide was retired during the outage; QPF loop added after
-recovery). NDFD publishes QPF images past the 72 h data horizon — frames
-13+ repeat frame 13's map with only the caption changed, so the loop
-stops at 12. Water-vapor band 09 has no stable SE loop file (404). If a
-feed 404s, fix the URL in slides.json — no code changes needed.
+recovery). NDFD publishes images past the 72 h data horizon — QPF frames
+13+ repeat frame 13's map with only the caption changed (loop stops at
+12), and for 3-hourly elements (T/WindSpd/Sky) even-numbered frames
+freeze past ~27, so those loops stop at 24 (which also matches
+MAX_FRAMES). Water-vapor band 09 has no stable SE loop file (404).
+Slide cache filenames strip URL query strings (ERDDAP/meteogram URLs
+contain dots in their queries). If a feed 404s, fix the URL in
+slides.json — no code changes needed.
 
 ## Conventions
 

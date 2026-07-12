@@ -114,6 +114,8 @@ prediction data):
   "timezone": "America/New_York",   // the STATION's IANA timezone
   "hours_past": 6,                  // chart window behind now
   "hours_ahead": 30,                // chart window ahead of now
+  "observed": true,                 // overlay measured water level (amber);
+                                    // the gap vs prediction is storm surge
   "refresh_minutes": 30             // re-render cadence (moves "now" marker)
 }
 ```
