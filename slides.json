@@ -30,6 +30,11 @@
       "refresh_minutes": 10
     },
     {
+      "name": "GOES-East True Color (CONUS)",
+      "url": "https://cdn.star.nesdis.noaa.gov/GOES19/ABI/CONUS/GEOCOLOR/GOES19-CONUS-GEOCOLOR-625x375.gif",
+      "refresh_minutes": 15
+    },
+    {
       "name": "GOES-East GEOCOLOR (SE)",
       "url": "https://cdn.star.nesdis.noaa.gov/GOES19/ABI/SECTOR/se/GEOCOLOR/GOES19-SE-GEOCOLOR-600x600.gif",
       "refresh_minutes": 15

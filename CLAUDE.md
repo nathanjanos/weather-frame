@@ -94,6 +94,7 @@ target is the Pi.
 |---|---|---|
 | Charleston Radar | https://radar.weather.gov/ridge/standard/KCLX_loop.gif | 6 min |
 | Southeast Radar Mosaic | https://radar.weather.gov/ridge/standard/SOUTHEAST_loop.gif | 10 min |
+| GOES-East True Color (CONUS) | https://cdn.star.nesdis.noaa.gov/GOES19/ABI/CONUS/GEOCOLOR/GOES19-CONUS-GEOCOLOR-625x375.gif (625x375 is the only GIF size; larger are mp4/static only) | 15 min |
 | GOES-East GEOCOLOR (SE) | https://cdn.star.nesdis.noaa.gov/GOES19/ABI/SECTOR/se/GEOCOLOR/GOES19-SE-GEOCOLOR-600x600.gif | 15 min |
 | GOES-East Air Mass (SE) | https://cdn.star.nesdis.noaa.gov/GOES19/ABI/SECTOR/se/AirMass/GOES19-SE-AirMass-600x600.gif | 15 min |
 | GOES-East Infrared / Band 13 (SE) | https://cdn.star.nesdis.noaa.gov/GOES19/ABI/SECTOR/se/13/GOES19-SE-13-600x600.gif | 15 min |
