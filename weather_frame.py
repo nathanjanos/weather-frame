@@ -963,6 +963,13 @@ def main():
     if args.mic_test:
         mic_test(cfg)
         return
+
+    # The app plays no sound, so keep SDL's audio subsystem out of the
+    # audio stack entirely: at boot, pygame.init() connecting to a
+    # still-assembling PipeWire graph can wedge device enumeration for
+    # the WHOLE system (probes saw zero inputs until the app was
+    # stopped for >5 s) — the mic is sounddevice's business alone.
+    os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
     if not slides:
         sys.exit("No enabled slides in config.")
 
