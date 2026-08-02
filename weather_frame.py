@@ -602,6 +602,40 @@ class VoiceControl(threading.Thread):
 
     SILENT_REOPEN_S = 45   # dead-zero capture for this long = zombie stream
     NO_AUDIO_S = 10        # no callback data for this long = hung stream
+    PROBE_WAIT_S = 15      # poll cadence while waiting for a mic to exist
+
+    def wait_for_input_device(self):
+        """Block until an audio input device exists, polling with a
+        THROWAWAY SUBPROCESS each time. PortAudio builds its device
+        list at first initialization in a process and re-initializing
+        in-place proved unreliable on the Pi: when the app starts at
+        boot before USB audio has enumerated, the in-process list
+        stayed 'NONE' forever, while a freshly started process saw the
+        mic immediately (hence 'frame stop/start fixes it'). A fresh
+        python per probe sidesteps that entirely — and this process
+        does not touch sounddevice until a mic is confirmed present."""
+        probe = ("import sounddevice, json; print(json.dumps("
+                 "[d['name'] for d in sounddevice.query_devices() "
+                 "if d['max_input_channels'] > 0]))")
+        while not self.stop_event.is_set():
+            names = []
+            try:
+                out = subprocess.run([sys.executable, "-c", probe],
+                                     capture_output=True, text=True,
+                                     timeout=30)
+                names = json.loads(out.stdout.strip() or "[]")
+            except Exception as e:
+                log.warning("voice: device probe failed: %s", e)
+            if names:
+                log.info("voice: input devices present: %s",
+                         ", ".join(names))
+                return True
+            log.info("voice: no input devices yet — probing again in "
+                     "%d s (USB audio enumerates late at boot)",
+                     self.PROBE_WAIT_S)
+            if self.stop_event.wait(self.PROBE_WAIT_S):
+                return False
+        return False
 
     def make_reader(self):
         """Reads from the callback queue with two watchdogs. A mic
@@ -684,8 +718,11 @@ class VoiceControl(threading.Thread):
         return stream
 
     def run(self):
+        import importlib.util
+        if importlib.util.find_spec("sounddevice") is None:
+            log.info("voice control off (pip install sounddevice vosk)")
+            return
         try:
-            import sounddevice as sd
             from vosk import Model as VoskModel, SetLogLevel
         except ImportError as e:
             log.info("voice control off (pip install sounddevice vosk): %s", e)
@@ -696,21 +733,24 @@ class VoiceControl(threading.Thread):
         except Exception as e:
             log.warning("voice control off: %s", e)
             return
-        # Keep trying forever: at boot the app can start before USB
-        # audio / PipeWire are up (autostart races them), and a mic can
-        # be unplugged and replugged — voice should come back on its
-        # own in all cases, appliance-style.
+        # CRITICAL ORDER: do not import sounddevice — which initializes
+        # PortAudio and freezes its device list — until a mic exists
+        if not self.wait_for_input_device():
+            return
+        import sounddevice as sd
+        # Keep trying forever: a mic can be unplugged and replugged —
+        # voice should come back on its own, appliance-style.
         while not self.stop_event.is_set():
             try:
                 stream = self.open_mic(sd)
             except Exception as e:
                 log.warning("voice: mic unavailable (%s) — retrying in 30 s", e)
-                try:      # rescan devices; PortAudio caches enumeration,
-                          # so a late-arriving USB mic is invisible without this
+                try:      # best-effort rescan (unreliable on some ALSA
+                          # stacks — the boot path avoids needing it)
                     sd._terminate()
                     sd._initialize()
-                except Exception:
-                    pass
+                except Exception as e2:
+                    log.warning("voice: device rescan failed: %s", e2)
                 if self.stop_event.wait(30):
                     return
                 continue
