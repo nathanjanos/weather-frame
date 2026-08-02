@@ -133,7 +133,10 @@ Each slide entry:
 ```
 
 Global settings: `seconds_per_slide`, `crossfade_seconds`, `show_captions`,
-`quiet_hours` (`off`/`on`, 24h clock), `background_color`.
+`quiet_hours` (`off`/`on`, 24h clock), `background_color`, and
+`display_scale` (shrink slides toward center — e.g. 0.97 leaves a 3%
+black margin so a picture mat that overlaps the panel edges never
+covers content; captions and the voice dot move inward to match).
 
 Locally rendered tide chart (no image URL — drawn from NOAA CO-OPS
 prediction data):

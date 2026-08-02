@@ -31,8 +31,11 @@ target is the Pi.
   ← previous, H hold current slide (GIF loops keep animating; caption
   shows "held"), P resume cycling, I instructions card, ESC/Q quit.
 - `slides.json` — all configuration. Global: seconds_per_slide,
-  crossfade_seconds, show_captions, quiet_hours, background_color.
-  Per slide: name, url, refresh_minutes, enabled, latest_in_dir.
+  crossfade_seconds, show_captions, quiet_hours, background_color,
+  display_scale (0.97 deployed — shrinks slides toward center because
+  the physical mat overlaps the panel edges; caption/voice-dot insets
+  follow). Per slide: name, url, refresh_minutes, enabled,
+  latest_in_dir, keyword.
 - `weather-frame.service` — systemd user unit for Pi autostart
 - `INSTALL.md` — Pi deployment steps
 - `PROJECT_LOG.md` — decision history

@@ -1,6 +1,7 @@
 {
   "seconds_per_slide": 8,
   "crossfade_seconds": 0.5,
+  "display_scale": 0.97,
   "show_captions": true,
   "caption_font_size": 26,
   "quiet_hours": {

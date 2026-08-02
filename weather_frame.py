@@ -47,6 +47,7 @@ DEFAULTS = {
     "crossfade_seconds": 0.8,
     "show_captions": True,
     "caption_font_size": 26,
+    "display_scale": 1.0,     # <1.0 shrinks+centers slides (matted frame)
     "quiet_hours": {"enabled": True, "off": "22:00", "on": "06:30"},
     "background_color": [0, 0, 0],
     "user_agent": "weather-frame/1.0 (personal wall display)",
@@ -103,6 +104,8 @@ def load_config(path: Path):
     cfg = {**DEFAULTS, **{k: v for k, v in raw.items() if k != "slides"}}
     # nested merge so a partial voice block keeps the other defaults
     cfg["voice"] = {**DEFAULTS["voice"], **raw.get("voice", {})}
+    if not 0.3 <= cfg["display_scale"] <= 1.0:
+        sys.exit("slides.json: display_scale must be between 0.3 and 1.0")
     # fail loudly on config mistakes: a typo'd slide silently skipped at
     # runtime is invisible on a headless wall display
     for s in raw["slides"]:
@@ -159,9 +162,12 @@ def load_config(path: Path):
 # Fetching + decoding
 # --------------------------------------------------------------------------
 
-def decode_to_frames(data: bytes, screen_size, bg_color):
+def decode_to_frames(data: bytes, screen_size, bg_color, display_scale=1.0):
     """Decode image bytes (static or animated GIF) into scaled pygame
-    surfaces, letterboxed to the screen on the background color."""
+    surfaces, letterboxed to the screen on the background color.
+    display_scale < 1.0 shrinks the image within the full-size canvas
+    (still centered) so a physical mat overlapping the panel edges
+    never crops content."""
     MAX_FRAMES = 24                       # bound memory for long loops
     sw, sh = screen_size
     img = Image.open(io.BytesIO(data))
@@ -174,7 +180,7 @@ def decode_to_frames(data: bytes, screen_size, bg_color):
         duration = frame.info.get("duration", 0) / 1000.0 * step
         rgba = frame.convert("RGBA")
         # scale to fit, preserve aspect
-        scale = min(sw / rgba.width, sh / rgba.height)
+        scale = min(sw / rgba.width, sh / rgba.height) * display_scale
         new_size = (max(1, int(rgba.width * scale)),
                     max(1, int(rgba.height * scale)))
         rgba = rgba.resize(new_size, Image.LANCZOS)
@@ -450,7 +456,8 @@ class Fetcher(threading.Thread):
         if data:
             try:
                 frames = decode_to_frames(data, self.screen_size,
-                                          self.cfg["background_color"])
+                                          self.cfg["background_color"],
+                                          self.cfg["display_scale"])
                 with slide.lock:
                     slide.frames = frames
                     slide.updated_at = fetched_at
@@ -465,7 +472,8 @@ class Fetcher(threading.Thread):
                 try:
                     frames = decode_to_frames(cp.read_bytes(),
                                               self.screen_size,
-                                              self.cfg["background_color"])
+                                              self.cfg["background_color"],
+                                              self.cfg["display_scale"])
                     with s.lock:
                         s.frames, s.updated_at = frames, cp.stat().st_mtime
                 except Exception:
@@ -860,14 +868,17 @@ def draw_help(screen, slides, title_font, body_font):
         screen.blit(body_font.render(name, True, DIM), (cx + kw_w, cy))
 
 
-def draw_caption(screen, font, slide: Slide, held: bool = False):
+def draw_caption(screen, font, slide: Slide, held: bool = False,
+                 inset=(0, 0)):
     ts = datetime.fromtimestamp(slide.updated_at).strftime("%I:%M %p").lstrip("0")
     text = f"{slide.name}  ·  updated {ts}"
     if held:
         text += "  ·  held"
     label = font.render(text, True, (200, 200, 200))
     pad = 18
-    screen.blit(label, (pad, screen.get_height() - label.get_height() - pad))
+    screen.blit(label, (pad + inset[0],
+                        screen.get_height() - label.get_height() - pad
+                        - inset[1]))
 
 
 def main():
@@ -913,6 +924,10 @@ def main():
     help_body_font = pygame.font.SysFont("dejavusans", max(13, size[1] // 50))
     clock = pygame.time.Clock()
     bg = tuple(cfg["background_color"])
+    # display_scale margin: keep overlays (caption, voice dot) inside
+    # the visible area when a physical mat covers the panel edges
+    inset = (int(size[0] * (1 - cfg["display_scale"]) / 2),
+             int(size[1] * (1 - cfg["display_scale"]) / 2))
 
     idx = 0
     slide_started = time.time()
@@ -1022,15 +1037,15 @@ def main():
                 screen.blit(fade_from, (0, 0))
 
         if cfg["show_captions"]:
-            draw_caption(screen, font, slide, hold)
+            draw_caption(screen, font, slide, hold, inset)
 
         if help_showing:
             draw_help(screen, slides, help_title_font, help_body_font)
 
         if voice_listening:    # amber dot: wake word heard, capturing
             pygame.draw.circle(screen, (216, 174, 90),
-                               (screen.get_width() - 34,
-                                screen.get_height() - 34), 9)
+                               (screen.get_width() - 34 - inset[0],
+                                screen.get_height() - 34 - inset[1]), 9)
 
         pygame.display.flip()
         clock.tick(30)
