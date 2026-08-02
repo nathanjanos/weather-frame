@@ -556,6 +556,25 @@ class VoiceControl(threading.Thread):
                 log.info("no command recognized (heard %r)", text)
             wake_rec = KaldiRecognizer(self.vosk, self.rate, wake_grammar)
 
+    def open_mic(self, sd):
+        """Open the mic at its NATIVE rate — many USB mics only do
+        44.1/48 kHz and ALSA won't resample a raw stream (PaError -9997
+        "Invalid sample rate"); Vosk downsamples internally as long as
+        the recognizer is told the true rate."""
+        dev = sd.query_devices(self.cfg["mic_device"], "input")
+        self.rate = int(dev.get("default_samplerate") or 16000)
+        self.chunk = int(self.rate * 0.2)
+        # NOTE: on macOS the first mic access blocks on the OS
+        # permission dialog — grant it once and this proceeds
+        log.info("voice: opening %r at %d Hz (first run on macOS pops "
+                 "a permission dialog) ...", dev.get("name", "mic"),
+                 self.rate)
+        stream = sd.RawInputStream(samplerate=self.rate, channels=1,
+                                   dtype="int16", blocksize=self.chunk,
+                                   device=self.cfg["mic_device"])
+        stream.start()
+        return stream
+
     def run(self):
         try:
             import sounddevice as sd
@@ -566,30 +585,42 @@ class VoiceControl(threading.Thread):
         try:
             SetLogLevel(-1)
             self.vosk = VoskModel(str(self.ensure_vosk_model()))
-            # open at the mic's NATIVE rate — many USB mics only do
-            # 44.1/48 kHz and ALSA won't resample a raw stream (PaError
-            # -9997 "Invalid sample rate"); Vosk downsamples internally
-            # as long as the recognizer is told the true rate
-            dev = sd.query_devices(self.cfg["mic_device"], "input")
-            self.rate = int(dev.get("default_samplerate") or 16000)
-            self.chunk = int(self.rate * 0.2)
-            # NOTE: on macOS the first mic access blocks on the OS
-            # permission dialog — grant it once and this proceeds
-            log.info("voice: opening %r at %d Hz (first run on macOS pops "
-                     "a permission dialog) ...", dev.get("name", "mic"),
-                     self.rate)
-            stream = sd.RawInputStream(samplerate=self.rate, channels=1,
-                                       dtype="int16", blocksize=self.chunk,
-                                       device=self.cfg["mic_device"])
-            stream.start()
         except Exception as e:
             log.warning("voice control off: %s", e)
             return
-        log.info("voice control on — say %r then one of: %s",
-                 self.cfg["wake_word"], ", ".join(sorted(set(VOICE_COMMANDS))))
-        self.loop(lambda: bytes(stream.read(self.chunk)[0]))
-        stream.stop()
-        stream.close()
+        # Keep trying forever: at boot the app can start before USB
+        # audio / PipeWire are up (autostart races them), and a mic can
+        # be unplugged and replugged — voice should come back on its
+        # own in all cases, appliance-style.
+        while not self.stop_event.is_set():
+            try:
+                stream = self.open_mic(sd)
+            except Exception as e:
+                log.warning("voice: mic unavailable (%s) — retrying in 30 s", e)
+                try:      # rescan devices; PortAudio caches enumeration,
+                          # so a late-arriving USB mic is invisible without this
+                    sd._terminate()
+                    sd._initialize()
+                except Exception:
+                    pass
+                if self.stop_event.wait(30):
+                    return
+                continue
+            log.info("voice control on — say %r then one of: %s",
+                     self.cfg["wake_word"],
+                     ", ".join(sorted(set(VOICE_COMMANDS))))
+            try:
+                self.loop(lambda: bytes(stream.read(self.chunk)[0]))
+            except Exception as e:
+                log.warning("voice: audio stream failed (%s) — reopening "
+                            "in 10 s", e)
+                self.stop_event.wait(10)
+            finally:
+                try:
+                    stream.stop()
+                    stream.close()
+                except Exception:
+                    pass
 
 
 # --------------------------------------------------------------------------

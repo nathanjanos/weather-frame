@@ -211,6 +211,11 @@ Notes:
   the requested rate. The app now opens the mic at its native rate
   automatically (Vosk downsamples internally), so update to a build
   with this fix if you see it. The log shows the device and rate used.
+- Voice worked when launched by hand but not at boot: the app can
+  start before USB audio is enumerated. The voice thread now retries
+  the mic every 30 s forever (and reopens it after unplug/replug), so
+  it comes up on its own; check progress with
+  `grep voice /tmp/weather-frame.log`.
 - Wrong mic picked up? List devices and set "mic_device" in the voice
   block to the right index (or a name substring):
 
