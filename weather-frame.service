@@ -1,16 +1,17 @@
-# Install:
-#   mkdir -p ~/.config/systemd/user
-#   cp weather-frame.service ~/.config/systemd/user/
-#   systemctl --user daemon-reload
-#   systemctl --user enable --now weather-frame
-#   loginctl enable-linger $USER      # keeps it running without a login session
+# Install: see INSTALL.md §3.
+#
+# NOTE: Raspberry Pi OS's desktop session (labwc, and Wayfire before it)
+# never activates systemd's user graphical-session.target, so this unit
+# must NOT rely on WantedBy=graphical-session.target — it would simply
+# never start at boot. Instead the desktop's autostart file
+# (~/.config/labwc/autostart) imports the display environment and starts
+# the service once the compositor is actually up; systemd then
+# supervises it (Restart=always).
 #
 # Assumes the project lives at /home/pi/weather-frame — edit paths if not.
 
 [Unit]
 Description=Weather Frame slideshow
-After=graphical-session.target
-PartOf=graphical-session.target
 
 [Service]
 Type=simple
@@ -20,4 +21,4 @@ Restart=always
 RestartSec=10
 
 [Install]
-WantedBy=graphical-session.target
+WantedBy=default.target

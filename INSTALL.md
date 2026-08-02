@@ -68,14 +68,33 @@ affects Mac testing — the Pi is unaffected.
 
 ## 3. Autostart on boot
 
+Two pieces: a systemd user unit (supervision — restarts the app if it
+crashes) and a desktop-autostart hook (the actual boot trigger).
+
+The hook is required because Raspberry Pi OS's desktop session (labwc)
+never activates systemd's user `graphical-session.target` — a unit
+"enabled" into that target silently never starts at boot. The autostart
+file runs when the desktop is actually up, imports the Wayland display
+environment (pygame and wlopm both need it), and starts the service.
+
 ```bash
 mkdir -p ~/.config/systemd/user
 cp weather-frame.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now weather-frame
-loginctl enable-linger pi
+systemctl --user enable weather-frame
+loginctl enable-linger $USER
+mkdir -p ~/.config/labwc
+cat >> ~/.config/labwc/autostart <<'EOF'
+systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP 2>/dev/null
+systemctl --user restart weather-frame
+EOF
 ```
 
+Requires Desktop Autologin (see §4). On an older Wayfire-based Bookworm
+image, put the same two commands in `[autostart]` in ~/.config/wayfire.ini
+(`a1 = ...`, `a2 = ...`) instead of the labwc file.
+
+Verify after a reboot: `systemctl --user status weather-frame`
 Logs: `journalctl --user -u weather-frame -f`
 
 ## 4. Pi OS kiosk polish
