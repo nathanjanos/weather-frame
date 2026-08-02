@@ -24,13 +24,13 @@
       "name": "Charleston Radar",
       "url": "https://radar.weather.gov/ridge/standard/KCLX_loop.gif",
       "refresh_minutes": 6,
-      "keyword": "radar"
+      "keyword": "charleston"
     },
     {
       "name": "Southeast Radar Mosaic",
       "url": "https://radar.weather.gov/ridge/standard/SOUTHEAST_loop.gif",
       "refresh_minutes": 10,
-      "keyword": "mosaic"
+      "keyword": "southeast"
     },
     {
       "name": "GOES-East True Color (CONUS)",
@@ -182,7 +182,7 @@
       "name": "Severe Weather Outlook (SPC Day 1)",
       "url": "https://www.spc.noaa.gov/partners/outlooks/national/swody1.png",
       "refresh_minutes": 60,
-      "keyword": "severe"
+      "keyword": "today"
     },
     {
       "name": "Severe Weather Outlook (SPC Day 2)",
@@ -194,7 +194,7 @@
       "name": "Atlantic Tropical Outlook (NHC)",
       "url": "https://www.nhc.noaa.gov/xgtwo/two_atl_7d0.png",
       "refresh_minutes": 120,
-      "keyword": "tropics"
+      "keyword": "hurricane"
     },
     {
       "name": "Saharan Dust Layer (Atlantic)",
