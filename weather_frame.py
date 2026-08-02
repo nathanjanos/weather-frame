@@ -23,6 +23,7 @@ import logging
 import math
 import os
 import queue
+import signal
 import subprocess
 import sys
 import threading
@@ -992,6 +993,42 @@ def draw_caption(screen, font, slide: Slide, held: bool = False,
                         - inset[1]))
 
 
+def acquire_single_instance_lock():
+    """Exactly one app instance, newest wins. The boot-deaf-mic saga's
+    true cause was a SECOND app instance from a leftover launcher
+    grabbing the mic at boot and answering the wake word on an
+    invisible window (kill-only-the-visible-one via ESC never fixed
+    it; pkill of both always did). A new launch now terminates any
+    older instance and takes over — stray launchers can no longer
+    cause a split-brain frame."""
+    try:
+        import fcntl
+    except ImportError:          # non-POSIX test box: skip the lock
+        return None
+    lockf = open("/tmp/weather-frame.lock", "a+")
+    for _ in range(10):
+        try:
+            fcntl.flock(lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lockf.seek(0)
+            lockf.truncate()
+            lockf.write(str(os.getpid()))
+            lockf.flush()
+            return lockf         # keep the handle open for app lifetime
+        except OSError:
+            lockf.seek(0)
+            pid = lockf.read().strip()
+            log.warning("another instance (pid %s) is running — "
+                        "terminating it and taking over", pid or "?")
+            if pid.isdigit():
+                try:
+                    os.kill(int(pid), signal.SIGTERM)
+                except (ProcessLookupError, PermissionError):
+                    pass
+            time.sleep(1)        # flock releases when the holder dies
+    log.error("could not obtain the single-instance lock — exiting")
+    sys.exit(1)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default=str(Path(__file__).parent / "slides.json"))
@@ -1008,11 +1045,10 @@ def main():
         mic_test(cfg)
         return
 
+    _lock = acquire_single_instance_lock()   # noqa: F841 (held for lifetime)
+
     # The app plays no sound, so keep SDL's audio subsystem out of the
-    # audio stack entirely: at boot, pygame.init() connecting to a
-    # still-assembling PipeWire graph can wedge device enumeration for
-    # the WHOLE system (probes saw zero inputs until the app was
-    # stopped for >5 s) — the mic is sounddevice's business alone.
+    # audio stack entirely — the mic is sounddevice's business alone.
     os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
     if not slides:
         sys.exit("No enabled slides in config.")

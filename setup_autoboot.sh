@@ -132,6 +132,43 @@ else
     ok "PipeWire already inactive"
 fi
 
+say "5c. hunting rival launchers (the double-instance check)"
+# A leftover launcher (systemd unit, crontab @reboot, XDG autostart,
+# old clone) can start a SECOND app instance at boot that grabs the
+# mic and answers the wake word invisibly. The app now enforces
+# single-instance, but rivals should still be removed at the source.
+CRON=$(crontab -l 2>/dev/null | grep -Ei 'weather|python' || true)
+if [ -n "$CRON" ]; then
+    warn "crontab entries that may launch the app — remove via 'crontab -e':"
+    echo "$CRON" | sed 's/^/  | /'
+else
+    ok "crontab: no app entries"
+fi
+UNITS=$(systemctl --user list-unit-files 2>/dev/null | grep -i weather || true)
+if [ -n "$UNITS" ]; then
+    warn "systemd user unit(s) found: $UNITS"
+    systemctl --user disable --now weather-frame >/dev/null 2>&1
+    ok "weather-frame unit disabled"
+else
+    ok "systemd user units: none"
+fi
+XDG_ENTRIES=$(ls "$HOME/.config/autostart/" 2>/dev/null | grep -Ei 'weather|frame' || true)
+if [ -n "$XDG_ENTRIES" ]; then
+    warn "XDG autostart entries: $XDG_ENTRIES — remove from ~/.config/autostart/"
+else
+    ok "XDG autostart: clean"
+fi
+if [ -d "$HOME/weather-frame" ] && [ "$APP_DIR" != "$HOME/weather-frame" ]; then
+    warn "old clone exists at ~/weather-frame — delete it: rm -rf ~/weather-frame"
+else
+    ok "no stray old clone"
+fi
+RUNNING=$(pgrep -af weather_frame.py || true)
+if [ -n "$RUNNING" ]; then
+    echo "  currently running instances (paths reveal which clone launched them):"
+    echo "$RUNNING" | sed 's/^/  | /'
+fi
+
 say "6. retiring earlier autostart attempts"
 if systemctl --user disable --now weather-frame >/dev/null 2>&1; then
     ok "systemd user unit disabled"
