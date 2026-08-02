@@ -22,6 +22,7 @@ import json
 import logging
 import math
 import os
+import queue
 import subprocess
 import sys
 import threading
@@ -592,19 +593,25 @@ class VoiceControl(threading.Thread):
             wake_rec = KaldiRecognizer(self.vosk, self.rate, wake_grammar)
 
     SILENT_REOPEN_S = 45   # dead-zero capture for this long = zombie stream
+    NO_AUDIO_S = 10        # no callback data for this long = hung stream
 
-    def make_reader(self, stream):
-        """Wrap stream reads with a silence watchdog. A mic opened while
-        the audio stack is still settling (boot, or a fast respawn ~5 s
-        after the previous instance died) can open successfully but
-        capture only zeros forever — a real room never yields sustained
-        digital silence, so treat it as a dead stream and force a
-        reopen via the caller's retry path."""
+    def make_reader(self):
+        """Reads from the callback queue with two watchdogs. A mic
+        opened while the audio stack is still settling (boot, or a fast
+        respawn after the previous instance died) can open successfully
+        yet either deliver NO data (hung PortAudio stream — a blocking
+        read would wait forever, which is why capture is callback-based)
+        or deliver only zeros. Both get raised so the caller's retry
+        path closes, rescans, and reopens."""
         quiet_since = [None]
         heard = [False]
 
         def read():
-            data = bytes(stream.read(self.chunk)[0])
+            try:
+                data = self.audio_q.get(timeout=self.NO_AUDIO_S)
+            except queue.Empty:
+                raise RuntimeError(
+                    f"no audio arrived for {self.NO_AUDIO_S}s (hung stream)")
             peak = max(abs(s) for s in array.array("h", data))
             if peak < 3:
                 if quiet_since[0] is None:
@@ -626,10 +633,19 @@ class VoiceControl(threading.Thread):
         """Open the mic at its NATIVE rate — many USB mics only do
         44.1/48 kHz and ALSA won't resample a raw stream (PaError -9997
         "Invalid sample rate"); Vosk downsamples internally as long as
-        the recognizer is told the true rate."""
+        the recognizer is told the true rate. Capture is callback-based
+        into a queue so a hung stream is detectable by timeout."""
         dev = sd.query_devices(self.cfg["mic_device"], "input")
         self.rate = int(dev.get("default_samplerate") or 16000)
         self.chunk = int(self.rate * 0.2)
+        self.audio_q = queue.Queue(maxsize=50)
+
+        def on_audio(indata, frames, time_info, status):
+            try:
+                self.audio_q.put_nowait(bytes(indata))
+            except queue.Full:      # consumer stalled; drop, don't block
+                pass
+
         # NOTE: on macOS the first mic access blocks on the OS
         # permission dialog — grant it once and this proceeds
         log.info("voice: opening %r at %d Hz (first run on macOS pops "
@@ -637,7 +653,8 @@ class VoiceControl(threading.Thread):
                  self.rate)
         stream = sd.RawInputStream(samplerate=self.rate, channels=1,
                                    dtype="int16", blocksize=self.chunk,
-                                   device=self.cfg["mic_device"])
+                                   device=self.cfg["mic_device"],
+                                   callback=on_audio)
         stream.start()
         return stream
 
@@ -676,7 +693,7 @@ class VoiceControl(threading.Thread):
                      self.cfg["wake_word"],
                      ", ".join(sorted(set(VOICE_COMMANDS))))
             try:
-                self.loop(self.make_reader(stream))
+                self.loop(self.make_reader())
             except Exception as e:
                 log.warning("voice: audio stream failed (%s) — reopening "
                             "in 10 s", e)
@@ -731,7 +748,15 @@ def mic_test(cfg):
     peak, heard = 0, set()
     t_end = time.time() + 20
     while time.time() < t_end:
-        data = bytes(stream.read(vc.chunk)[0])
+        try:
+            data = vc.audio_q.get(timeout=5)
+        except queue.Empty:
+            print("\nVERDICT: mic opened but NO audio is arriving (hung "
+                  "stream) — the app now detects and reopens this "
+                  "automatically; if it persists, replug the mic or pick "
+                  'another "mic_device"')
+            stream.stop(); stream.close()
+            return
         samples = array.array("h", data)
         level = max(abs(s) for s in samples)
         peak = max(peak, level)
