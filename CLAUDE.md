@@ -80,8 +80,10 @@ target is the Pi.
   daemon thread runs Vosk fully on-device with a two-stage constrained
   grammar — ["hey jarvis", "[unk]"] continuously, then the command
   grammar (next/forward/back/previous/hold/pause/play/resume plus every
-  per-slide `keyword`) for a few seconds after wake — and posts KEYDOWN
-  or VOICE_JUMP events to the main loop. Each slide's `keyword` is a
+  per-slide `keyword`, plus instructions/help which overlays a command
+  card for voice.help_seconds and freezes the dwell) for a few seconds
+  after wake — and posts KEYDOWN, VOICE_JUMP, or VOICE_HELP events to
+  the main loop. Each slide's `keyword` is a
   spoken shortcut ("hey jarvis, tides" jumps to the tide chart);
   keywords must be unique lowercase single common-English words (Vosk
   small-model vocabulary) and are validated at startup. All 32 current

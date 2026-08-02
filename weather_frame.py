@@ -52,6 +52,7 @@ DEFAULTS = {
         "enabled": False,
         "wake_word": "hey jarvis",        # phrase in the wake grammar
         "command_seconds": 3.0,           # listen window after the wake word
+        "help_seconds": 10.0,             # how long the instructions card shows
         "mic_device": None,               # sounddevice input (None = default)
         "vosk_model_dir": "models/vosk-model-small-en-us-0.15",
     },
@@ -125,7 +126,7 @@ def load_config(path: Path):
             continue
         if " " in kw or kw != kw.lower():
             sys.exit(f"slides.json: keyword {kw!r} must be one lowercase word")
-        if kw in VOICE_COMMANDS:
+        if kw in VOICE_COMMANDS or kw in VOICE_HELP_WORDS:
             sys.exit(f"slides.json: keyword {kw!r} collides with a voice command")
         if kw in seen_kw:
             sys.exit(f"slides.json: duplicate keyword {kw!r}")
@@ -493,6 +494,9 @@ VOICE_COMMANDS = {
 
 VOICE_EVENT = pygame.event.custom_type()   # mic indicator on/off
 VOICE_JUMP = pygame.event.custom_type()    # jump to slide (attr: index)
+VOICE_HELP = pygame.event.custom_type()    # show the instructions card
+
+VOICE_HELP_WORDS = ("instructions", "help")
 
 
 class VoiceControl(threading.Thread):
@@ -544,8 +548,8 @@ class VoiceControl(threading.Thread):
         instead of a microphone)."""
         from vosk import KaldiRecognizer
         wake_grammar = json.dumps([self.cfg["wake_word"], "[unk]"])
-        cmd_grammar = json.dumps(list(VOICE_COMMANDS) +
-                                 list(self.keywords) + ["[unk]"])
+        cmd_grammar = json.dumps(list(VOICE_COMMANDS) + list(self.keywords) +
+                                 list(VOICE_HELP_WORDS) + ["[unk]"])
         wake_rec = KaldiRecognizer(self.vosk, self.rate, wake_grammar)
         while not self.stop_event.is_set():
             data = read_chunk()
@@ -568,9 +572,13 @@ class VoiceControl(threading.Thread):
             text = json.loads(cmd_rec.FinalResult()).get("text", "")
             pygame.event.post(pygame.event.Event(VOICE_EVENT, listening=False))
             words = [w for w in text.split()
-                     if w in VOICE_COMMANDS or w in self.keywords]
+                     if w in VOICE_COMMANDS or w in self.keywords
+                     or w in VOICE_HELP_WORDS]
             if not words:
                 log.info("no command recognized (heard %r)", text)
+            elif words[-1] in VOICE_HELP_WORDS:
+                log.info("voice: showing instructions")
+                pygame.event.post(pygame.event.Event(VOICE_HELP))
             elif words[-1] in VOICE_COMMANDS:
                 log.info("voice command: %s", words[-1])
                 pygame.event.post(pygame.event.Event(
@@ -782,6 +790,46 @@ def set_display_power(on: bool):
 # Main display loop
 # --------------------------------------------------------------------------
 
+def draw_help(screen, slides, title_font, body_font):
+    """The 'hey jarvis, instructions' card: a dark veil over the current
+    slide with the command vocabulary and every slide keyword, in the
+    gallery typographic style (light text, amber accents)."""
+    w, h = screen.get_size()
+    AMBER, TEXT, DIM = (216, 174, 90), (206, 210, 216), (128, 134, 142)
+    veil = pygame.Surface((w, h))
+    veil.set_alpha(235)
+    veil.fill((0, 0, 0))
+    screen.blit(veil, (0, 0))
+
+    x0, y = w // 14, h // 16
+    title = title_font.render('SAY  "HEY JARVIS"  THEN …', True, AMBER)
+    screen.blit(title, (x0, y))
+    y += int(title.get_height() * 1.8)
+    for line in ("next / forward        →  next slide",
+                 "back / previous       →  previous slide",
+                 "hold / pause          →  stay on this slide",
+                 "play / resume         →  resume cycling",
+                 "instructions / help   →  this screen",
+                 "… or a slide name:"):
+        screen.blit(body_font.render(line, True, TEXT), (x0, y))
+        y += int(body_font.get_height() * 1.4)
+    y += body_font.get_height() // 2
+
+    tagged = [s for s in slides if s.keyword]
+    rows = (len(tagged) + 1) // 2
+    col_w = (w - 2 * x0) // 2
+    kw_w = max(body_font.size(s.keyword)[0] for s in tagged) + w // 48
+    row_h = int(body_font.get_height() * 1.32)
+    for i, s in enumerate(tagged):
+        cx = x0 + (i // rows) * col_w
+        cy = y + (i % rows) * row_h
+        screen.blit(body_font.render(s.keyword, True, AMBER), (cx, cy))
+        name = s.name
+        while body_font.size(name)[0] > col_w - kw_w - w // 40 and len(name) > 4:
+            name = name[:-2]
+        screen.blit(body_font.render(name, True, DIM), (cx + kw_w, cy))
+
+
 def draw_caption(screen, font, slide: Slide, held: bool = False):
     ts = datetime.fromtimestamp(slide.updated_at).strftime("%I:%M %p").lstrip("0")
     text = f"{slide.name}  ·  updated {ts}"
@@ -831,6 +879,8 @@ def main():
         voice.start()
 
     font = pygame.font.SysFont("dejavusans", cfg["caption_font_size"])
+    help_title_font = pygame.font.SysFont("dejavusans", max(20, size[1] // 32))
+    help_body_font = pygame.font.SysFont("dejavusans", max(13, size[1] // 50))
     clock = pygame.time.Clock()
     bg = tuple(cfg["background_color"])
 
@@ -841,6 +891,7 @@ def main():
     was_quiet = False
     hold = False           # H holds the current slide; P resumes cycling
     voice_listening = False
+    help_until = 0.0       # instructions card visible until this time
 
     def goto(target):
         nonlocal idx, slide_started, frame_i, frame_started, fade_from, fade_started
@@ -872,6 +923,8 @@ def main():
                 voice_listening = ev.listening
             elif ev.type == VOICE_JUMP:
                 goto(ev.index)
+            elif ev.type == VOICE_HELP:
+                help_until = time.time() + cfg["voice"]["help_seconds"]
             elif ev.type == pygame.KEYDOWN:
                 if ev.key in (pygame.K_ESCAPE, pygame.K_q):
                     running = False
@@ -907,8 +960,12 @@ def main():
             continue
 
         # per-slide dwell time; GIFs animate within it (hold suspends
-        # auto-advance but lets the current loop keep playing)
-        if not hold and time.time() - slide_started >= cfg["seconds_per_slide"]:
+        # auto-advance but lets the current loop keep playing; the
+        # instructions card also freezes the dwell so it can be read)
+        help_showing = time.time() < help_until
+        if help_showing:
+            slide_started = time.time()   # fresh dwell after the card
+        elif not hold and time.time() - slide_started >= cfg["seconds_per_slide"]:
             advance(1)
             slide = slides[idx]
             with slide.lock:
@@ -934,6 +991,9 @@ def main():
 
         if cfg["show_captions"]:
             draw_caption(screen, font, slide, hold)
+
+        if help_showing:
+            draw_help(screen, slides, help_title_font, help_body_font)
 
         if voice_listening:    # amber dot: wake word heard, capturing
             pygame.draw.circle(screen, (216, 174, 90),
