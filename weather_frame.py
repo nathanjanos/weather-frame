@@ -15,6 +15,7 @@ Keys: ESC/Q quit, RIGHT/SPACE next slide, LEFT previous slide,
 """
 
 import argparse
+import array
 import io
 import json
 import logging
@@ -556,6 +557,37 @@ class VoiceControl(threading.Thread):
                 log.info("no command recognized (heard %r)", text)
             wake_rec = KaldiRecognizer(self.vosk, self.rate, wake_grammar)
 
+    SILENT_REOPEN_S = 45   # dead-zero capture for this long = zombie stream
+
+    def make_reader(self, stream):
+        """Wrap stream reads with a silence watchdog. A mic opened while
+        the audio stack is still settling (boot, or a fast respawn ~5 s
+        after the previous instance died) can open successfully but
+        capture only zeros forever — a real room never yields sustained
+        digital silence, so treat it as a dead stream and force a
+        reopen via the caller's retry path."""
+        quiet_since = [None]
+        heard = [False]
+
+        def read():
+            data = bytes(stream.read(self.chunk)[0])
+            peak = max(abs(s) for s in array.array("h", data))
+            if peak < 3:
+                if quiet_since[0] is None:
+                    quiet_since[0] = time.time()
+                elif time.time() - quiet_since[0] > self.SILENT_REOPEN_S:
+                    raise RuntimeError(
+                        f"mic captured only silence for "
+                        f"{self.SILENT_REOPEN_S}s (zombie stream)")
+            else:
+                quiet_since[0] = None
+                if not heard[0]:
+                    heard[0] = True
+                    log.info("voice: hearing audio (peak %d)", peak)
+            return data
+
+        return read
+
     def open_mic(self, sd):
         """Open the mic at its NATIVE rate — many USB mics only do
         44.1/48 kHz and ALSA won't resample a raw stream (PaError -9997
@@ -610,10 +642,18 @@ class VoiceControl(threading.Thread):
                      self.cfg["wake_word"],
                      ", ".join(sorted(set(VOICE_COMMANDS))))
             try:
-                self.loop(lambda: bytes(stream.read(self.chunk)[0]))
+                self.loop(self.make_reader(stream))
             except Exception as e:
                 log.warning("voice: audio stream failed (%s) — reopening "
                             "in 10 s", e)
+                try:      # full device rescan before the reopen: the
+                          # zombie-capture case needs fresh enumeration
+                    stream.stop()
+                    stream.close()
+                    sd._terminate()
+                    sd._initialize()
+                except Exception:
+                    pass
                 self.stop_event.wait(10)
             finally:
                 try:
