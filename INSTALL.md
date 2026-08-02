@@ -68,34 +68,35 @@ affects Mac testing — the Pi is unaffected.
 
 ## 3. Autostart on boot
 
-Two pieces: a systemd user unit (supervision — restarts the app if it
-crashes) and a desktop-autostart hook (the actual boot trigger).
+The boot trigger must be the desktop session's own autostart file —
+NOT cron `@reboot` (fires before a display exists, empty environment)
+and NOT a systemd user unit alone (Raspberry Pi OS's labwc session
+never activates the user `graphical-session.target`, so a unit
+"enabled" into it silently never starts). The labwc autostart file
+runs exactly when the compositor is up, with the display environment
+pygame and wlopm need.
 
-The hook is required because Raspberry Pi OS's desktop session (labwc)
-never activates systemd's user `graphical-session.target` — a unit
-"enabled" into that target silently never starts at boot. The autostart
-file runs when the desktop is actually up, imports the Wayland display
-environment (pygame and wlopm both need it), and starts the service.
+The deployed setup — one line, self-restarting on crash:
 
 ```bash
-mkdir -p ~/.config/systemd/user
-cp weather-frame.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable weather-frame
-loginctl enable-linger $USER
 mkdir -p ~/.config/labwc
-cat >> ~/.config/labwc/autostart <<'EOF'
-systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP 2>/dev/null
-systemctl --user restart weather-frame
-EOF
+printf '%s\n' 'while true; do /usr/bin/python3 /home/pi/weather-frame/weather_frame.py; sleep 5; done &' >> ~/.config/labwc/autostart
 ```
 
-Requires Desktop Autologin (see §4). On an older Wayfire-based Bookworm
-image, put the same two commands in `[autostart]` in ~/.config/wayfire.ini
-(`a1 = ...`, `a2 = ...`) instead of the labwc file.
+Requires Desktop Autologin (see §4). Adjust the path to your user.
+On an older Wayfire-based image, put the same command under
+`[autostart]` in ~/.config/wayfire.ini instead.
 
-Verify after a reboot: `systemctl --user status weather-frame`
-Logs: `journalctl --user -u weather-frame -f`
+Verify after a reboot (~30 s): `pgrep -af weather_frame.py`
+
+Alternative: weather-frame.service is a systemd user unit for those
+who prefer journald logging and `systemctl` control — install it per
+the comments in the file, and have the labwc autostart run
+`systemctl --user restart weather-frame` instead of the loop above.
+Note that stock Pi OS keeps the journal in memory only, so
+`journalctl --user` reports "No journal files were found" — user-unit
+logs land in the system journal (`sudo journalctl -b
+_SYSTEMD_USER_UNIT=weather-frame.service`).
 
 ## 4. Pi OS kiosk polish
 
