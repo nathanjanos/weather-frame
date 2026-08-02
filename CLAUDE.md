@@ -32,7 +32,7 @@ target is the Pi.
   shows "held"), P resume cycling, I instructions card, ESC/Q quit.
 - `slides.json` — all configuration. Global: seconds_per_slide,
   crossfade_seconds, show_captions, quiet_hours, background_color,
-  display_scale (0.97 deployed — shrinks slides toward center because
+  display_scale (0.95 deployed — shrinks slides toward center because
   the physical mat overlaps the panel edges; caption/voice-dot insets
   follow). Per slide: name, url, refresh_minutes, enabled,
   latest_in_dir, keyword.
