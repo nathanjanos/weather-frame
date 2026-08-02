@@ -54,6 +54,8 @@ case "${1:-status}" in
     loop_running && echo "restart loop: alive" || echo "restart loop: not running (reboot or 'frame.sh start' to launch)"
     echo "--- last log lines ($APPLOG):"
     tail -5 "$APPLOG" 2>/dev/null || echo "(no log yet)"
+    echo "--- voice story (timestamped):"
+    grep -E "voice" "$APPLOG" 2>/dev/null | tail -10 || echo "(no voice lines)"
     ;;
   *)
     echo "usage: bash frame.sh {stop|start|status}"

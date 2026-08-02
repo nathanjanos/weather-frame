@@ -614,25 +614,35 @@ class VoiceControl(threading.Thread):
         mic immediately (hence 'frame stop/start fixes it'). A fresh
         python per probe sidesteps that entirely — and this process
         does not touch sounddevice until a mic is confirmed present."""
-        probe = ("import sounddevice, json; print(json.dumps("
-                 "[d['name'] for d in sounddevice.query_devices() "
-                 "if d['max_input_channels'] > 0]))")
+        probe = (
+            "import sounddevice, json, pathlib\n"
+            "names = [d['name'] for d in sounddevice.query_devices()\n"
+            "         if d['max_input_channels'] > 0]\n"
+            "cards = '?'\n"
+            "p = pathlib.Path('/proc/asound/cards')\n"
+            "if p.exists():\n"
+            "    cards = ' '.join(p.read_text().split()) or '(empty)'\n"
+            "print(json.dumps({'inputs': names, 'cards': cards}))\n")
         while not self.stop_event.is_set():
-            names = []
+            names, cards = [], "?"
             try:
                 out = subprocess.run([sys.executable, "-c", probe],
                                      capture_output=True, text=True,
                                      timeout=30)
-                names = json.loads(out.stdout.strip() or "[]")
+                info = json.loads(out.stdout.strip() or "{}")
+                names = info.get("inputs", [])
+                cards = info.get("cards", "?")
             except Exception as e:
                 log.warning("voice: device probe failed: %s", e)
             if names:
                 log.info("voice: input devices present: %s",
                          ", ".join(names))
                 return True
-            log.info("voice: no input devices yet — probing again in "
-                     "%d s (USB audio enumerates late at boot)",
-                     self.PROBE_WAIT_S)
+            # kernel card list is ground truth below ALSA/PortAudio:
+            # "(empty)" = USB audio truly not enumerated yet;
+            # cards listed but no inputs = ALSA/plugin-level problem
+            log.info("voice: no input devices yet (kernel cards: %s) — "
+                     "probing again in %d s", cards, self.PROBE_WAIT_S)
             if self.stop_event.wait(self.PROBE_WAIT_S):
                 return False
         return False
