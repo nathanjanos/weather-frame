@@ -637,13 +637,31 @@ class VoiceControl(threading.Thread):
 
         return read
 
+    def pick_input_device(self, sd):
+        """Choose the capture device. An explicit mic_device wins;
+        otherwise prefer a USB input over the system default — at boot
+        the default can resolve to a non-mic source (HDMI/onboard)
+        while the USB mic enumerates late, and a wrong source delivers
+        plausible-looking audio that defeats every stream watchdog."""
+        if self.cfg["mic_device"] is not None:
+            return self.cfg["mic_device"]
+        inputs = [(i, d) for i, d in enumerate(sd.query_devices())
+                  if d.get("max_input_channels", 0) > 0]
+        log.info("voice: input devices: %s",
+                 "; ".join(f"[{i}] {d['name']}" for i, d in inputs) or "NONE")
+        for i, d in inputs:
+            if "usb" in d["name"].lower():
+                return i
+        return None                     # fall back to system default
+
     def open_mic(self, sd):
         """Open the mic at its NATIVE rate — many USB mics only do
         44.1/48 kHz and ALSA won't resample a raw stream (PaError -9997
         "Invalid sample rate"); Vosk downsamples internally as long as
         the recognizer is told the true rate. Capture is callback-based
         into a queue so a hung stream is detectable by timeout."""
-        dev = sd.query_devices(self.cfg["mic_device"], "input")
+        device = self.pick_input_device(sd)
+        dev = sd.query_devices(device, "input")
         self.rate = int(dev.get("default_samplerate") or 16000)
         self.chunk = int(self.rate * 0.2)
         self.audio_q = queue.Queue(maxsize=50)
@@ -661,8 +679,7 @@ class VoiceControl(threading.Thread):
                  self.rate)
         stream = sd.RawInputStream(samplerate=self.rate, channels=1,
                                    dtype="int16", blocksize=self.chunk,
-                                   device=self.cfg["mic_device"],
-                                   callback=on_audio)
+                                   device=device, callback=on_audio)
         stream.start()
         return stream
 
