@@ -614,35 +614,79 @@ class VoiceControl(threading.Thread):
         mic immediately (hence 'frame stop/start fixes it'). A fresh
         python per probe sidesteps that entirely — and this process
         does not touch sounddevice until a mic is confirmed present."""
-        probe = (
-            "import sounddevice, json, pathlib\n"
-            "names = [d['name'] for d in sounddevice.query_devices()\n"
-            "         if d['max_input_channels'] > 0]\n"
-            "cards = '?'\n"
-            "p = pathlib.Path('/proc/asound/cards')\n"
-            "if p.exists():\n"
-            "    cards = ' '.join(p.read_text().split()) or '(empty)'\n"
-            "print(json.dumps({'inputs': names, 'cards': cards}))\n")
+        probe = r'''
+import glob, json, os, pathlib, subprocess
+import sounddevice
+report = {}
+report["inputs"] = [d["name"] for d in sounddevice.query_devices()
+                    if d["max_input_channels"] > 0]
+p = pathlib.Path("/proc/asound/cards")
+report["cards"] = (" ".join(p.read_text().split()) or "(empty)") if p.exists() else "?"
+if not report["inputs"]:
+    # forensics: WHO is touching the audio devices, and what does the
+    # kernel say about each capture PCM?
+    holders = set()
+    for fd in glob.glob("/proc/[0-9]*/fd/*"):
+        try:
+            t = os.readlink(fd)
+            if t.startswith("/dev/snd/"):
+                pid = fd.split("/")[2]
+                comm = pathlib.Path(f"/proc/{pid}/comm").read_text().strip()
+                holders.add(f"{comm}[{pid}]:{t.rsplit('/', 1)[1]}")
+        except OSError:
+            pass
+    report["dev_snd_holders"] = sorted(holders) or ["none visible"]
+    stats = []
+    for st in sorted(glob.glob("/proc/asound/card*/pcm*c/sub*/status")):
+        try:
+            txt = " ".join(pathlib.Path(st).read_text().split())
+            stats.append(f"{st.split('/')[3]}: {txt[:140]}")
+        except OSError:
+            pass
+    report["capture_pcm_status"] = stats or ["no capture PCMs"]
+    # the actual errno: attempt a real 1 s capture on the first capture card
+    cap = sorted(glob.glob("/proc/asound/card*/pcm*c"))
+    if cap:
+        n = cap[0].split("/")[3].replace("card", "")
+        try:
+            r = subprocess.run(
+                ["arecord", "-D", f"plughw:{n},0", "-d", "1", "-f",
+                 "S16_LE", "-r", "44100", "/dev/null"],
+                capture_output=True, text=True, timeout=10)
+            report["arecord_test"] = ("OK" if r.returncode == 0 else
+                                      (r.stderr or r.stdout).strip()[-200:])
+        except Exception as e:
+            report["arecord_test"] = f"unavailable: {e}"
+    report["pipewire_running"] = bool(subprocess.run(
+        ["pgrep", "-l", "pipewire"], capture_output=True).stdout) or \
+        bool(subprocess.run(["pgrep", "-l", "wireplumber"],
+                            capture_output=True).stdout)
+print(json.dumps(report))
+'''
+        attempt = 0
         while not self.stop_event.is_set():
-            names, cards = [], "?"
+            attempt += 1
+            info = {}
             try:
                 out = subprocess.run([sys.executable, "-c", probe],
                                      capture_output=True, text=True,
                                      timeout=30)
                 info = json.loads(out.stdout.strip() or "{}")
-                names = info.get("inputs", [])
-                cards = info.get("cards", "?")
             except Exception as e:
                 log.warning("voice: device probe failed: %s", e)
-            if names:
+            if info.get("inputs"):
                 log.info("voice: input devices present: %s",
-                         ", ".join(names))
+                         ", ".join(info["inputs"]))
                 return True
-            # kernel card list is ground truth below ALSA/PortAudio:
-            # "(empty)" = USB audio truly not enumerated yet;
-            # cards listed but no inputs = ALSA/plugin-level problem
             log.info("voice: no input devices yet (kernel cards: %s) — "
-                     "probing again in %d s", cards, self.PROBE_WAIT_S)
+                     "probing again in %d s", info.get("cards", "?"),
+                     self.PROBE_WAIT_S)
+            # full forensic dump on early attempts, then periodically
+            if attempt <= 3 or attempt % 8 == 0:
+                for key in ("dev_snd_holders", "capture_pcm_status",
+                            "arecord_test", "pipewire_running"):
+                    log.info("voice: forensic %s: %s", key,
+                             info.get(key, "?"))
             if self.stop_event.wait(self.PROBE_WAIT_S):
                 return False
         return False
