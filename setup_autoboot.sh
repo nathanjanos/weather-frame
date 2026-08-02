@@ -2,11 +2,14 @@
 # setup_autoboot.sh — make the weather frame start automatically at boot.
 #
 # Run ON the Pi (as the desktop user, e.g. necco):
-#   cd ~/weather-frame && git pull && bash setup_autoboot.sh
+#   cd ~/dev/weather-frame && git pull && bash setup_autoboot.sh
 #   sudo reboot
 #
 # After the reboot, check it worked with:
-#   bash ~/weather-frame/setup_autoboot.sh --check
+#   bash ~/dev/weather-frame/setup_autoboot.sh --check
+#
+# The project directory is wherever this script lives — no path is
+# assumed, so any clone location works.
 #
 # What it does:
 #   - diagnoses the environment loudly (user, paths, python deps, session)
@@ -18,7 +21,8 @@
 
 set -u
 
-APP_DIR="$HOME/weather-frame"
+# the project is wherever this script itself lives
+APP_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP="$APP_DIR/weather_frame.py"
 AUTOSTART="$HOME/.config/labwc/autostart"
 APPLOG="/tmp/weather-frame.log"
@@ -59,11 +63,11 @@ else
 fi
 
 say "2. project files"
+echo "  project dir (from script location): $APP_DIR"
 if [ -f "$APP" ]; then
     ok "$APP"
 else
-    fail "$APP not found — clone the repo to ~/weather-frame first"
-    ls -d "$HOME"/*weather* 2>/dev/null | sed 's/^/  found instead: /'
+    fail "$APP not found next to this script — run the copy inside the repo"
 fi
 [ -f "$APP_DIR/slides.json" ] && ok "slides.json present" || fail "slides.json missing"
 
@@ -139,7 +143,7 @@ sed 's/^/  | /' "$AUTOSTART"
 say "result"
 if [ "$PROBLEMS" -eq 0 ]; then
     echo "  All checks passed. Now:   sudo reboot"
-    echo "  After reboot, verify:     bash ~/weather-frame/setup_autoboot.sh --check"
+    echo "  After reboot, verify:     bash $APP_DIR/setup_autoboot.sh --check"
 else
     echo "  $PROBLEMS problem(s) above marked FAIL — fix those first, then re-run this script."
 fi
