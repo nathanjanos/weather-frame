@@ -22,47 +22,56 @@
     {
       "name": "Charleston Radar",
       "url": "https://radar.weather.gov/ridge/standard/KCLX_loop.gif",
-      "refresh_minutes": 6
+      "refresh_minutes": 6,
+      "keyword": "radar"
     },
     {
       "name": "Southeast Radar Mosaic",
       "url": "https://radar.weather.gov/ridge/standard/SOUTHEAST_loop.gif",
-      "refresh_minutes": 10
+      "refresh_minutes": 10,
+      "keyword": "mosaic"
     },
     {
       "name": "GOES-East True Color (CONUS)",
       "url": "https://cdn.star.nesdis.noaa.gov/GOES19/ABI/CONUS/GEOCOLOR/GOES19-CONUS-GEOCOLOR-625x375.gif",
-      "refresh_minutes": 15
+      "refresh_minutes": 15,
+      "keyword": "america"
     },
     {
       "name": "GOES-East GEOCOLOR (SE)",
       "url": "https://cdn.star.nesdis.noaa.gov/GOES19/ABI/SECTOR/se/GEOCOLOR/GOES19-SE-GEOCOLOR-600x600.gif",
-      "refresh_minutes": 15
+      "refresh_minutes": 15,
+      "keyword": "satellite"
     },
     {
       "name": "GOES-East Air Mass (SE)",
       "url": "https://cdn.star.nesdis.noaa.gov/GOES19/ABI/SECTOR/se/AirMass/GOES19-SE-AirMass-600x600.gif",
-      "refresh_minutes": 15
+      "refresh_minutes": 15,
+      "keyword": "air"
     },
     {
       "name": "GOES-East Infrared (SE)",
       "url": "https://cdn.star.nesdis.noaa.gov/GOES19/ABI/SECTOR/se/13/GOES19-SE-13-600x600.gif",
-      "refresh_minutes": 15
+      "refresh_minutes": 15,
+      "keyword": "infrared"
     },
     {
       "name": "GOES-East Sandwich (SE)",
       "url": "https://cdn.star.nesdis.noaa.gov/GOES19/ABI/SECTOR/se/Sandwich/GOES19-SE-Sandwich-600x600.gif",
-      "refresh_minutes": 15
+      "refresh_minutes": 15,
+      "keyword": "sandwich"
     },
     {
       "name": "GOES-East Lightning (SE)",
       "url": "https://cdn.star.nesdis.noaa.gov/GOES19/GLM/SECTOR/se/EXTENT3/GOES19-SE-EXTENT3-600x600.gif",
-      "refresh_minutes": 15
+      "refresh_minutes": 15,
+      "keyword": "lightning"
     },
     {
       "name": "Mount Pleasant Hourly Forecast",
       "url": "https://forecast.weather.gov/meteograms/Plotter.php?lat=32.8323&lon=-79.8284&wfo=CHS&zcode=SCZ050&gset=30&gdiff=10&unit=0&tinfo=EY5&ahour=0&pcmd=11011111111110000000000000000000000000000000000000000000000&lg=en&indu=1!1!1!&dd=&bw=&hrspan=48&pqpfhr=6&psnwhr=6",
-      "refresh_minutes": 60
+      "refresh_minutes": 60,
+      "keyword": "hourly"
     },
     {
       "name": "Temperature (SC, 3-Day Loop)",
@@ -71,7 +80,8 @@
       "frame_start": 1,
       "frame_count": 24,
       "frame_seconds": 0.35,
-      "refresh_minutes": 60
+      "refresh_minutes": 60,
+      "keyword": "temperature"
     },
     {
       "name": "Wind Speed & Direction (SC, 3-Day Loop)",
@@ -80,7 +90,8 @@
       "frame_start": 1,
       "frame_count": 24,
       "frame_seconds": 0.35,
-      "refresh_minutes": 60
+      "refresh_minutes": 60,
+      "keyword": "wind"
     },
     {
       "name": "Sky Cover (SC, 3-Day Loop)",
@@ -89,7 +100,8 @@
       "frame_start": 1,
       "frame_count": 24,
       "frame_seconds": 0.35,
-      "refresh_minutes": 60
+      "refresh_minutes": 60,
+      "keyword": "clouds"
     },
     {
       "name": "Amount of Precipitation (SC, 3-Day Loop)",
@@ -98,12 +110,14 @@
       "frame_start": 1,
       "frame_count": 12,
       "frame_seconds": 0.7,
-      "refresh_minutes": 60
+      "refresh_minutes": 60,
+      "keyword": "rain"
     },
     {
       "name": "US Surface Analysis (Pressure & Fronts)",
       "url": "https://www.wpc.ncep.noaa.gov/sfc/bwsfc.gif",
-      "refresh_minutes": 120
+      "refresh_minutes": 120,
+      "keyword": "pressure"
     },
     {
       "name": "Surface Forecast Loop (Fronts, ~60h)",
@@ -112,72 +126,86 @@
       "frame_start": 92,
       "frame_count": 8,
       "frame_seconds": 0.8,
-      "refresh_minutes": 180
+      "refresh_minutes": 180,
+      "keyword": "fronts"
     },
     {
       "name": "Surface Forecast Day 3 (WPC)",
       "url": "https://www.wpc.ncep.noaa.gov/medr/9jhwbg_conus.gif",
-      "refresh_minutes": 360
+      "refresh_minutes": 360,
+      "keyword": "three"
     },
     {
       "name": "Surface Forecast Day 5 (WPC)",
       "url": "https://www.wpc.ncep.noaa.gov/medr/9lhwbg_conus.gif",
-      "refresh_minutes": 360
+      "refresh_minutes": 360,
+      "keyword": "five"
     },
     {
       "name": "500mb Upper-Air Analysis (SPC)",
       "url": "https://www.spc.noaa.gov/exper/mesoanalysis/s19/500mb/500mb.gif",
-      "refresh_minutes": 60
+      "refresh_minutes": 60,
+      "keyword": "upper"
     },
     {
       "name": "300mb Jet Stream (SPC)",
       "url": "https://www.spc.noaa.gov/exper/mesoanalysis/s19/300mb/300mb.gif",
-      "refresh_minutes": 60
+      "refresh_minutes": 60,
+      "keyword": "jet"
     },
     {
       "name": "Atlantic Surface Analysis (OPC)",
       "url": "https://ocean.weather.gov/A_sfc_full_ocean_color.png",
-      "refresh_minutes": 180
+      "refresh_minutes": 180,
+      "keyword": "atlantic"
     },
     {
       "name": "7-Day Precipitation Outlook (WPC)",
       "url": "https://www.wpc.ncep.noaa.gov/qpf/p168i.gif",
-      "refresh_minutes": 180
+      "refresh_minutes": 180,
+      "keyword": "seven"
     },
     {
       "name": "6-10 Day Temperature Outlook (CPC)",
       "url": "https://www.cpc.ncep.noaa.gov/products/predictions/610day/610temp.new.gif",
-      "refresh_minutes": 360
+      "refresh_minutes": 360,
+      "keyword": "outlook"
     },
     {
       "name": "8-14 Day Precipitation Outlook (CPC)",
       "url": "https://www.cpc.ncep.noaa.gov/products/predictions/814day/814prcp.new.gif",
-      "refresh_minutes": 360
+      "refresh_minutes": 360,
+      "keyword": "extended"
     },
     {
       "name": "Severe Weather Outlook (SPC Day 1)",
       "url": "https://www.spc.noaa.gov/partners/outlooks/national/swody1.png",
-      "refresh_minutes": 60
+      "refresh_minutes": 60,
+      "keyword": "severe"
     },
     {
       "name": "Severe Weather Outlook (SPC Day 2)",
       "url": "https://www.spc.noaa.gov/partners/outlooks/national/swody2.png",
-      "refresh_minutes": 180
+      "refresh_minutes": 180,
+      "keyword": "tomorrow"
     },
     {
       "name": "Atlantic Tropical Outlook (NHC)",
       "url": "https://www.nhc.noaa.gov/xgtwo/two_atl_7d0.png",
-      "refresh_minutes": 120
+      "refresh_minutes": 120,
+      "keyword": "tropics"
     },
     {
       "name": "Saharan Dust Layer (Atlantic)",
       "url": "https://tropic.ssec.wisc.edu/real-time/sal/g16split/g16split.jpg",
-      "refresh_minutes": 180
+      "refresh_minutes": 180,
+      "keyword": "dust"
     },
     {
       "name": "Gulf Stream Sea Surface Temperature",
       "url": "https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplMURSST41.transparentPng?analysed_sst%5B(last)%5D%5B(29):(36.2)%5D%5B(-81.6):(-70)%5D&.colorBar=KT_thermal%7C%7C%7C24%7C31%7C&.size=1856%7C1160",
-      "refresh_minutes": 720
+      "refresh_minutes": 720,
+      "keyword": "gulf"
     },
     {
       "name": "Charleston Harbor Tides",
@@ -186,22 +214,26 @@
       "timezone": "America/New_York",
       "hours_past": 6,
       "hours_ahead": 30,
-      "refresh_minutes": 30
+      "refresh_minutes": 30,
+      "keyword": "tides"
     },
     {
       "name": "US Drought Monitor (Southeast)",
       "url": "https://droughtmonitor.unl.edu/data/png/current/current_southeast_trd.png",
-      "refresh_minutes": 720
+      "refresh_minutes": 720,
+      "keyword": "drought"
     },
     {
       "name": "The Sun Today (SDO)",
       "url": "https://sdo.gsfc.nasa.gov/assets/img/latest/latest_2048_HMIIC.jpg",
-      "refresh_minutes": 60
+      "refresh_minutes": 60,
+      "keyword": "sun"
     },
     {
       "name": "Solar Corona (SOHO LASCO C3)",
       "url": "https://soho.nascom.nasa.gov/data/realtime/c3/1024/latest.jpg",
-      "refresh_minutes": 60
+      "refresh_minutes": 60,
+      "keyword": "corona"
     }
   ]
 }

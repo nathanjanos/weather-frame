@@ -79,8 +79,13 @@ target is the Pi.
 - Voice control (optional, `voice` block in slides.json): `VoiceControl`
   daemon thread runs Vosk fully on-device with a two-stage constrained
   grammar — ["hey jarvis", "[unk]"] continuously, then the command
-  grammar (next/forward/back/previous/hold/pause/play/resume) for a few
-  seconds after wake — and posts KEYDOWN events to the main loop. Amber
+  grammar (next/forward/back/previous/hold/pause/play/resume plus every
+  per-slide `keyword`) for a few seconds after wake — and posts KEYDOWN
+  or VOICE_JUMP events to the main loop. Each slide's `keyword` is a
+  spoken shortcut ("hey jarvis, tides" jumps to the tide chart);
+  keywords must be unique lowercase single common-English words (Vosk
+  small-model vocabulary) and are validated at startup. All 32 current
+  keywords verified end-to-end with synthesized speech 2026-08-02. Amber
   dot bottom-right while capturing. Needs `pip install sounddevice
   vosk` (optional deps — the app runs without them); Vosk model
   auto-downloads to `models/` (gitignored). Gotcha: openWakeWord was

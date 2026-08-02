@@ -176,8 +176,12 @@ publish loops as separate PNGs):
 
 Fully on-device (Vosk) — no cloud, nothing leaves the machine. Say
 **"hey jarvis"**, then one of: *next / forward / back / previous /
-hold / pause / play / resume*. An amber dot appears bottom-right while
-it listens for the command.
+hold / pause / play / resume* — or any slide's `keyword` from
+slides.json to jump straight to it ("hey jarvis, tides"). An amber dot
+appears bottom-right while it listens for the command. Keywords must
+be unique lowercase single words the small Vosk model knows (common
+English words work; the app refuses duplicates or command collisions
+at startup).
 
 ```bash
 # Mac (in the venv)

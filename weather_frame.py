@@ -76,6 +76,7 @@ class Slide:
     frame_count: int = 0          # sequence: how many frames
     frame_seconds: float = 0.7    # sequence: seconds per frame
     hold_seconds: float = 0.0     # sequence: pause on last frame (0 = 3x frame)
+    keyword: str = ""             # voice: "hey jarvis <keyword>" jumps here
     # runtime state
     frames: list = field(default_factory=list)      # [(Surface, duration_s)]
     updated_at: float = 0.0
@@ -115,6 +116,20 @@ def load_config(path: Path):
                                    or s.get("frame_count", 0) < 1):
             sys.exit(f"slides.json: {s['name']!r} needs a url_template "
                      "containing {n} and a frame_count")
+    # voice keywords must be unique single words and not collide with
+    # the fixed command vocabulary — a collision would shadow a command
+    seen_kw = set()
+    for s in raw["slides"]:
+        kw = s.get("keyword", "")
+        if not kw or not s.get("enabled", True):
+            continue
+        if " " in kw or kw != kw.lower():
+            sys.exit(f"slides.json: keyword {kw!r} must be one lowercase word")
+        if kw in VOICE_COMMANDS:
+            sys.exit(f"slides.json: keyword {kw!r} collides with a voice command")
+        if kw in seen_kw:
+            sys.exit(f"slides.json: duplicate keyword {kw!r}")
+        seen_kw.add(kw)
     slides = [
         Slide(name=s["name"], url=s.get("url", ""),
               type=s.get("type", "image"),
@@ -130,7 +145,8 @@ def load_config(path: Path):
               frame_start=s.get("frame_start", 1),
               frame_count=s.get("frame_count", 0),
               frame_seconds=s.get("frame_seconds", 0.7),
-              hold_seconds=s.get("hold_seconds", 0.0))
+              hold_seconds=s.get("hold_seconds", 0.0),
+              keyword=s.get("keyword", ""))
         for s in raw["slides"] if s.get("enabled", True)
     ]
     return cfg, slides
@@ -476,6 +492,7 @@ VOICE_COMMANDS = {
 }
 
 VOICE_EVENT = pygame.event.custom_type()   # mic indicator on/off
+VOICE_JUMP = pygame.event.custom_type()    # jump to slide (attr: index)
 
 
 class VoiceControl(threading.Thread):
@@ -491,10 +508,11 @@ class VoiceControl(threading.Thread):
     a microphone are missing it logs why and stays off — the slideshow
     is never affected."""
 
-    def __init__(self, vcfg, app_dir: Path):
+    def __init__(self, vcfg, app_dir: Path, keywords=None):
         super().__init__(daemon=True)
         self.cfg = vcfg
         self.app_dir = app_dir
+        self.keywords = keywords or {}   # spoken word -> slide index
         self.stop_event = threading.Event()
         # capture rate is set from the mic's native rate in run();
         # tests inject audio directly into loop() at 16 kHz
@@ -526,7 +544,8 @@ class VoiceControl(threading.Thread):
         instead of a microphone)."""
         from vosk import KaldiRecognizer
         wake_grammar = json.dumps([self.cfg["wake_word"], "[unk]"])
-        cmd_grammar = json.dumps(list(VOICE_COMMANDS) + ["[unk]"])
+        cmd_grammar = json.dumps(list(VOICE_COMMANDS) +
+                                 list(self.keywords) + ["[unk]"])
         wake_rec = KaldiRecognizer(self.vosk, self.rate, wake_grammar)
         while not self.stop_event.is_set():
             data = read_chunk()
@@ -548,13 +567,19 @@ class VoiceControl(threading.Thread):
                     break                       # source ended / utterance end
             text = json.loads(cmd_rec.FinalResult()).get("text", "")
             pygame.event.post(pygame.event.Event(VOICE_EVENT, listening=False))
-            words = [w for w in text.split() if w in VOICE_COMMANDS]
-            if words:
+            words = [w for w in text.split()
+                     if w in VOICE_COMMANDS or w in self.keywords]
+            if not words:
+                log.info("no command recognized (heard %r)", text)
+            elif words[-1] in VOICE_COMMANDS:
                 log.info("voice command: %s", words[-1])
                 pygame.event.post(pygame.event.Event(
                     pygame.KEYDOWN, key=VOICE_COMMANDS[words[-1]]))
             else:
-                log.info("no command recognized (heard %r)", text)
+                log.info("voice jump: %s -> slide %d", words[-1],
+                         self.keywords[words[-1]])
+                pygame.event.post(pygame.event.Event(
+                    VOICE_JUMP, index=self.keywords[words[-1]]))
             wake_rec = KaldiRecognizer(self.vosk, self.rate, wake_grammar)
 
     SILENT_REOPEN_S = 45   # dead-zero capture for this long = zombie stream
@@ -801,7 +826,8 @@ def main():
 
     voice = None
     if cfg["voice"]["enabled"]:
-        voice = VoiceControl(cfg["voice"], Path(__file__).parent)
+        keywords = {s.keyword: i for i, s in enumerate(slides) if s.keyword}
+        voice = VoiceControl(cfg["voice"], Path(__file__).parent, keywords)
         voice.start()
 
     font = pygame.font.SysFont("dejavusans", cfg["caption_font_size"])
@@ -816,7 +842,7 @@ def main():
     hold = False           # H holds the current slide; P resumes cycling
     voice_listening = False
 
-    def advance(step=1):
+    def goto(target):
         nonlocal idx, slide_started, frame_i, frame_started, fade_from, fade_started
         with slides[idx].lock:
             if slides[idx].frames:
@@ -825,12 +851,17 @@ def main():
                 # and the fetcher may swap frames out mid-transition.
                 fade_from = slides[idx].frames[frame_i % len(slides[idx].frames)][0].copy()
                 fade_started = time.time()
-        for _ in range(len(slides)):
-            idx = (idx + step) % len(slides)
-            if slides[idx].frames:
-                break
+        idx = target % len(slides)
         slide_started = time.time()
         frame_i, frame_started = 0, time.time()
+
+    def advance(step=1):
+        target = idx
+        for _ in range(len(slides)):
+            target = (target + step) % len(slides)
+            if slides[target].frames:
+                break
+        goto(target)
 
     running = True
     while running:
@@ -839,6 +870,8 @@ def main():
                 running = False
             elif ev.type == VOICE_EVENT:
                 voice_listening = ev.listening
+            elif ev.type == VOICE_JUMP:
+                goto(ev.index)
             elif ev.type == pygame.KEYDOWN:
                 if ev.key in (pygame.K_ESCAPE, pygame.K_q):
                     running = False
