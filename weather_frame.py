@@ -623,6 +623,71 @@ class VoiceControl(threading.Thread):
                     pass
 
 
+def mic_test(cfg):
+    """Interactive mic diagnostic (--mic-test): prints the device list,
+    then 20 seconds of live level meter + free-vocabulary recognition,
+    and ends with a plain-language verdict. Run `frame.sh stop` first if
+    the app is running (it may hold the mic)."""
+    try:
+        import sounddevice as sd
+        from vosk import KaldiRecognizer, Model as VoskModel, SetLogLevel
+    except ImportError as e:
+        print(f"voice deps missing ({e.name}): pip install sounddevice vosk")
+        return
+    import array
+    print("== audio devices (> marks default input) ==")
+    print(sd.query_devices())
+    print(f'\n== configured mic_device: {cfg["voice"]["mic_device"]!r} '
+          "(null = default) ==")
+    vc = VoiceControl(cfg["voice"], Path(__file__).parent)
+    try:
+        stream = vc.open_mic(sd)
+    except Exception as e:
+        print(f"\nVERDICT: cannot open the mic: {e}")
+        print("  - is the USB mic plugged in and listed above?")
+        print('  - if the wrong device is default, set "mic_device" in '
+              "slides.json to the right name substring or index")
+        print("  - if the app is running it may hold the mic: frame.sh stop")
+        return
+    SetLogLevel(-1)
+    print(f"\nlistening for 20 s at {vc.rate} Hz — TALK NOW "
+          "(any words; try 'hey jarvis next'):")
+    vosk = VoskModel(str(vc.ensure_vosk_model()))
+    rec = KaldiRecognizer(vosk, vc.rate)      # no grammar: any word counts
+    peak, heard = 0, set()
+    t_end = time.time() + 20
+    while time.time() < t_end:
+        data = bytes(stream.read(vc.chunk)[0])
+        samples = array.array("h", data)
+        level = max(abs(s) for s in samples)
+        peak = max(peak, level)
+        if rec.AcceptWaveform(data):
+            words = json.loads(rec.Result()).get("text", "")
+            if words:
+                heard.update(words.split())
+        partial = json.loads(rec.PartialResult()).get("partial", "")
+        bar = "#" * min(40, level // 800)
+        print(f"\r  level {level:5d} |{bar:<40s}| {partial[:30]:<30s}",
+              end="", flush=True)
+    heard.update(json.loads(rec.FinalResult()).get("text", "").split())
+    stream.stop(); stream.close()
+    print(f"\n\npeak level: {peak}   words recognized: "
+          f"{' '.join(sorted(heard)) or '(none)'}")
+    if peak < 300:
+        print("VERDICT: mic opens but captures silence — raise the capture "
+              "gain:\n  alsamixer -> F6 pick the USB device -> F5 -> find "
+              "the Capture/Mic bar -> arrow-up to ~80% -> Esc\n  then: "
+              "sudo alsactl store   (persists the gain across reboots)")
+    elif not heard:
+        print("VERDICT: audio arrives but no speech recognized — speak "
+              "louder/closer, or the mic is picking a noisy channel")
+    else:
+        print("VERDICT: mic and recognition work. If the app still doesn't "
+              "respond to 'hey jarvis', make sure it was restarted since "
+              "the last git pull (frame.sh stop && frame.sh start), then "
+              "check: grep voice /tmp/weather-frame.log")
+
+
 # --------------------------------------------------------------------------
 # Quiet hours
 # --------------------------------------------------------------------------
@@ -667,11 +732,16 @@ def main():
     ap.add_argument("--config", default=str(Path(__file__).parent / "slides.json"))
     ap.add_argument("--windowed", action="store_true",
                     help="1280x800 window for testing instead of fullscreen")
+    ap.add_argument("--mic-test", action="store_true",
+                    help="diagnose the microphone + speech path, then exit")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
     cfg, slides = load_config(Path(args.config))
+    if args.mic_test:
+        mic_test(cfg)
+        return
     if not slides:
         sys.exit("No enabled slides in config.")
 
