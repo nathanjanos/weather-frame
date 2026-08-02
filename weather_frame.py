@@ -490,13 +490,15 @@ class VoiceControl(threading.Thread):
     a microphone are missing it logs why and stays off — the slideshow
     is never affected."""
 
-    CHUNK = 3200                  # 0.2 s of 16 kHz mono int16
-
     def __init__(self, vcfg, app_dir: Path):
         super().__init__(daemon=True)
         self.cfg = vcfg
         self.app_dir = app_dir
         self.stop_event = threading.Event()
+        # capture rate is set from the mic's native rate in run();
+        # tests inject audio directly into loop() at 16 kHz
+        self.rate = 16000
+        self.chunk = int(self.rate * 0.2)
 
     def ensure_vosk_model(self) -> Path:
         """Download + unzip the small Vosk model on first run (~40 MB)."""
@@ -524,7 +526,7 @@ class VoiceControl(threading.Thread):
         from vosk import KaldiRecognizer
         wake_grammar = json.dumps([self.cfg["wake_word"], "[unk]"])
         cmd_grammar = json.dumps(list(VOICE_COMMANDS) + ["[unk]"])
-        wake_rec = KaldiRecognizer(self.vosk, 16000, wake_grammar)
+        wake_rec = KaldiRecognizer(self.vosk, self.rate, wake_grammar)
         while not self.stop_event.is_set():
             data = read_chunk()
             if data is None:
@@ -537,7 +539,7 @@ class VoiceControl(threading.Thread):
                 continue
             log.info("wake word heard, listening for a command ...")
             pygame.event.post(pygame.event.Event(VOICE_EVENT, listening=True))
-            cmd_rec = KaldiRecognizer(self.vosk, 16000, cmd_grammar)
+            cmd_rec = KaldiRecognizer(self.vosk, self.rate, cmd_grammar)
             deadline = time.time() + self.cfg["command_seconds"]
             while time.time() < deadline and not self.stop_event.is_set():
                 data = read_chunk()
@@ -552,7 +554,7 @@ class VoiceControl(threading.Thread):
                     pygame.KEYDOWN, key=VOICE_COMMANDS[words[-1]]))
             else:
                 log.info("no command recognized (heard %r)", text)
-            wake_rec = KaldiRecognizer(self.vosk, 16000, wake_grammar)
+            wake_rec = KaldiRecognizer(self.vosk, self.rate, wake_grammar)
 
     def run(self):
         try:
@@ -564,12 +566,20 @@ class VoiceControl(threading.Thread):
         try:
             SetLogLevel(-1)
             self.vosk = VoskModel(str(self.ensure_vosk_model()))
+            # open at the mic's NATIVE rate — many USB mics only do
+            # 44.1/48 kHz and ALSA won't resample a raw stream (PaError
+            # -9997 "Invalid sample rate"); Vosk downsamples internally
+            # as long as the recognizer is told the true rate
+            dev = sd.query_devices(self.cfg["mic_device"], "input")
+            self.rate = int(dev.get("default_samplerate") or 16000)
+            self.chunk = int(self.rate * 0.2)
             # NOTE: on macOS the first mic access blocks on the OS
             # permission dialog — grant it once and this proceeds
-            log.info("voice: opening microphone (first run on macOS pops "
-                     "a permission dialog) ...")
-            stream = sd.RawInputStream(samplerate=16000, channels=1,
-                                       dtype="int16", blocksize=self.CHUNK,
+            log.info("voice: opening %r at %d Hz (first run on macOS pops "
+                     "a permission dialog) ...", dev.get("name", "mic"),
+                     self.rate)
+            stream = sd.RawInputStream(samplerate=self.rate, channels=1,
+                                       dtype="int16", blocksize=self.chunk,
                                        device=self.cfg["mic_device"])
             stream.start()
         except Exception as e:
@@ -577,7 +587,7 @@ class VoiceControl(threading.Thread):
             return
         log.info("voice control on — say %r then one of: %s",
                  self.cfg["wake_word"], ", ".join(sorted(set(VOICE_COMMANDS))))
-        self.loop(lambda: bytes(stream.read(self.CHUNK)[0]))
+        self.loop(lambda: bytes(stream.read(self.chunk)[0]))
         stream.stop()
         stream.close()
 

@@ -195,6 +195,16 @@ Notes:
   edge, not sealed behind it, or it will be muffled.
 - If the deps, model, or mic are missing, voice control disables
   itself with a log line and the slideshow is unaffected.
+- "Invalid sample rate [PaErrorCode -9997]": the mic can't capture at
+  the requested rate. The app now opens the mic at its native rate
+  automatically (Vosk downsamples internally), so update to a build
+  with this fix if you see it. The log shows the device and rate used.
+- Wrong mic picked up? List devices and set "mic_device" in the voice
+  block to the right index (or a name substring):
+
+```bash
+python3 -c "import sounddevice; print(sounddevice.query_devices())"
+```
 
 ## 7. Optional: true backlight dimming via DDC/CI
 
