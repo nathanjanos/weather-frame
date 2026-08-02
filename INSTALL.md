@@ -76,18 +76,30 @@ never activates the user `graphical-session.target`, so a unit
 runs exactly when the compositor is up, with the display environment
 pygame and wlopm need.
 
-The deployed setup — one line, self-restarting on crash:
+The deployed setup — self-restarting on crash, output logged, and
+`$HOME` expands at paste time so a non-`pi` username can't silently
+break the path (the classic failure: the app launches, dies instantly
+on a wrong hardcoded path, and the loop respawns it invisibly —
+indistinguishable from "autostart didn't run"):
 
 ```bash
 mkdir -p ~/.config/labwc
-printf '%s\n' 'while true; do /usr/bin/python3 /home/pi/weather-frame/weather_frame.py; sleep 5; done &' >> ~/.config/labwc/autostart
+printf '%s\n' "exec >>/tmp/weather-frame-autostart.log 2>&1" "while true; do /usr/bin/python3 \"$HOME/weather-frame/weather_frame.py\"; sleep 5; done &" >> ~/.config/labwc/autostart
 ```
 
-Requires Desktop Autologin (see §4). Adjust the path to your user.
-On an older Wayfire-based image, put the same command under
-`[autostart]` in ~/.config/wayfire.ini instead.
+Requires Desktop Autologin (see §4). Pi OS runs BOTH
+/etc/xdg/labwc/autostart and the user file (its labwc-pi wrapper
+passes labwc's -m merge flag), so this is purely additive — the
+desktop still starts normally. The file is run with plain `sh`; no
+exec bit needed; the trailing `&` is required. On an older
+Wayfire-based image, put the same command under `[autostart]` in
+~/.config/wayfire.ini instead.
 
-Verify after a reboot (~30 s): `pgrep -af weather_frame.py`
+Verify after a reboot (~30 s), including why it died if it did:
+
+```bash
+pgrep -af weather_frame.py || tail -5 /tmp/weather-frame-autostart.log
+```
 
 Alternative: weather-frame.service is a systemd user unit for those
 who prefer journald logging and `systemctl` control — install it per
