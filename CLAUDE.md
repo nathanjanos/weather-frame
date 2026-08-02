@@ -29,7 +29,7 @@ target is the Pi.
 - `weather_frame.py` — the whole app (pygame). Fullscreen slideshow;
   `--windowed` gives a 1280x800 test window. Keys: SPACE/→ next,
   ← previous, H hold current slide (GIF loops keep animating; caption
-  shows "held"), P resume cycling, ESC/Q quit.
+  shows "held"), P resume cycling, I instructions card, ESC/Q quit.
 - `slides.json` — all configuration. Global: seconds_per_slide,
   crossfade_seconds, show_captions, quiet_hours, background_color.
   Per slide: name, url, refresh_minutes, enabled, latest_in_dir.

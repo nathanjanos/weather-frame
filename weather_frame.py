@@ -11,7 +11,8 @@ Target: Raspberry Pi 5 (8GB) + ASUS ProArt PA248QV (1920x1200)
 
 Run:  python3 weather_frame.py [--config slides.json] [--windowed]
 Keys: ESC/Q quit, RIGHT/SPACE next slide, LEFT previous slide,
-      H hold current slide (loops keep animating), P resume cycling
+      H hold current slide (loops keep animating), P resume cycling,
+      I show the instructions card
 """
 
 import argparse
@@ -805,13 +806,17 @@ def draw_help(screen, slides, title_font, body_font):
     title = title_font.render('SAY  "HEY JARVIS"  THEN …', True, AMBER)
     screen.blit(title, (x0, y))
     y += int(title.get_height() * 1.8)
-    for line in ("next / forward        →  next slide",
-                 "back / previous       →  previous slide",
-                 "hold / pause          →  stay on this slide",
-                 "play / resume         →  resume cycling",
-                 "instructions / help   →  this screen",
-                 "… or a slide name:"):
-        screen.blit(body_font.render(line, True, TEXT), (x0, y))
+    for line, keys in (("next / forward        →  next slide", "SPACE or →"),
+                       ("back / previous       →  previous slide", "←"),
+                       ("hold / pause          →  stay on this slide", "H"),
+                       ("play / resume         →  resume cycling", "P"),
+                       ("instructions / help   →  this screen", "I"),
+                       ("… or a slide name:", "")):
+        surf = body_font.render(line, True, TEXT)
+        screen.blit(surf, (x0, y))
+        if keys:   # keyboard shortcut, dimmed, after the action text
+            screen.blit(body_font.render(f"  (key: {keys})", True, DIM),
+                        (x0 + surf.get_width(), y))
         y += int(body_font.get_height() * 1.4)
     y += body_font.get_height() // 2
 
@@ -937,6 +942,8 @@ def main():
                 elif ev.key == pygame.K_p and hold:
                     hold = False
                     slide_started = time.time()   # fresh dwell, no jump
+                elif ev.key == pygame.K_i:
+                    help_until = time.time() + cfg["voice"]["help_seconds"]
 
         quiet = in_quiet_hours(cfg)
         if quiet != was_quiet:
