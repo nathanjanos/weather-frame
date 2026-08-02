@@ -114,6 +114,24 @@ else
     warn "could not confirm desktop autologin — if the wall shows a login screen after reboot, run: sudo raspi-config -> System -> Boot/Auto Login -> Desktop Autologin"
 fi
 
+say "5b. freeing the microphone from PipeWire/WirePlumber"
+# WirePlumber claims every ALSA device at session start and only
+# releases (suspends) them after ~5 s with no audio clients — which
+# kept the USB mic busy/invisible to PortAudio at boot (kernel showed
+# the card; PortAudio saw zero inputs; a stop/start gap > 5 s freed
+# it). This frame plays no audio, so PipeWire has no job here.
+if systemctl --user is-active --quiet pipewire 2>/dev/null || \
+   systemctl --user is-enabled --quiet pipewire.socket 2>/dev/null; then
+    systemctl --user disable --now wireplumber pipewire pipewire-pulse \
+        pipewire.socket pipewire-pulse.socket >/dev/null 2>&1
+    ok "PipeWire/WirePlumber user services disabled — nothing claims the mic now"
+    echo "  (re-enable if you ever want system audio:  systemctl --user"
+    echo "   enable --now pipewire pipewire-pulse wireplumber)"
+    echo "  (the desktop volume applet may show an error icon — harmless)"
+else
+    ok "PipeWire already inactive"
+fi
+
 say "6. retiring earlier autostart attempts"
 if systemctl --user disable --now weather-frame >/dev/null 2>&1; then
     ok "systemd user unit disabled"

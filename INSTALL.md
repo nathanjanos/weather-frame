@@ -220,15 +220,20 @@ Notes:
   the requested rate. The app now opens the mic at its native rate
   automatically (Vosk downsamples internally), so update to a build
   with this fix if you see it. The log shows the device and rate used.
-- Voice worked when launched by hand but not at boot: at boot the app
-  can start before USB audio has enumerated, and PortAudio freezes its
-  device list at first initialization — in-process re-initialization
-  does NOT reliably refresh it, so the mic stayed invisible forever
-  (log showed "input devices: NONE" on every retry) while a freshly
-  started process saw it instantly. The voice thread now confirms an
-  input device exists via a throwaway subprocess BEFORE initializing
-  PortAudio, so boot order no longer matters. Watch it happen:
-  `grep voice /tmp/weather-frame.log`.
+- Voice worked when launched by hand but not at boot — TWO stacked
+  causes, both now handled:
+  1. PortAudio freezes its device list at first in-process
+     initialization; the voice thread now probes with a throwaway
+     subprocess and initializes only once a mic exists.
+  2. The big one: WirePlumber/PipeWire claims every ALSA device at
+     session start and releases them only after ~5 s idle — the mic
+     was BUSY (kernel card present, zero PortAudio inputs) until the
+     app was stopped for longer than the suspend timeout, which is
+     why `frame.sh stop`+`start` always fixed it and a 5 s respawn
+     never did. setup_autoboot.sh disables the PipeWire user services
+     on the frame (it plays no audio; re-enable with `systemctl --user
+     enable --now pipewire pipewire-pulse wireplumber`).
+  Watch the boot story: `grep voice /tmp/weather-frame.log`.
 - Wrong mic picked up? List devices and set "mic_device" in the voice
   block to the right index (or a name substring):
 
