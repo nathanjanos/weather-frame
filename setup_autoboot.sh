@@ -135,7 +135,7 @@ say "7. installing the launch line"
 mkdir -p "$(dirname "$AUTOSTART")"
 {
     echo "$MARKER"
-    echo "while true; do /usr/bin/python3 \"$APP\" >>$APPLOG 2>&1; sleep 5; done &"
+    echo "while true; do [ -e /tmp/weather-frame.stop ] || /usr/bin/python3 \"$APP\" >>$APPLOG 2>&1; sleep 5; done &"
 } >> "$AUTOSTART"
 ok "wrote $AUTOSTART:"
 sed 's/^/  | /' "$AUTOSTART"
